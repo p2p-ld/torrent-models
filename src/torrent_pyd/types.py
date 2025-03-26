@@ -1,6 +1,6 @@
 import sys
 from datetime import datetime
-from typing import Annotated, NotRequired, TypeAlias, TypedDict
+from typing import Annotated, NotRequired, TypeAlias
 from typing import Literal as L
 
 from pydantic import (
@@ -12,9 +12,9 @@ from pydantic import (
 )
 
 if sys.version_info < (3, 12):
-    from typing_extensions import TypeAliasType
+    from typing_extensions import TypeAliasType, TypedDict
 else:
-    from typing import TypeAliasType
+    from typing import TypeAliasType, TypedDict
 
 
 def _timestamp_to_datetime(val: int | datetime) -> datetime:
