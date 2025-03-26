@@ -5,7 +5,7 @@
 groups = ["default", "dev", "tests"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:5fd7b1dbb3d21c3f258623b7cb43ac5670f9a0eab4db33a0f28544ded311d163"
+content_hash = "sha256:1d201caddf34c746927729e07126fd92ede3d7725cedcb2977dd730a33fb4761"
 
 [[metadata.targets]]
 requires_python = ">=3.11"
@@ -22,6 +22,26 @@ dependencies = [
 files = [
     {file = "annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53"},
     {file = "annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89"},
+]
+
+[[package]]
+name = "bencode-rs"
+version = "0.0.7"
+requires_python = "~=3.10"
+summary = "a bencode parser build with pyo3"
+groups = ["default"]
+files = [
+    {file = "bencode_rs-0.0.7-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d446d7fce52e135c65b5e15cdaef5fc64c39aa4215bccb4b803676df05a3ab45"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:89de74e7b34eabe20c5a8ba58cabc75764ec881a0b1dae02b1d7bcb6b2a5ce6c"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:354a30aa7c840684f7e48ea8b3f598f0e4c8dcbe77297ce040f92081396107fd"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:24df67362897e3b638ac7e4830fca37059d3372d3ece2973eba06506ca7a4bbe"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:08913a6b89e7d9fdf29d3d2582a1e4b769695a4dff643a85cdcc5bd1c4de1f72"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:c367ec0313da98f85e8f2bd1f8a659cc1a89a91355e658a6db4b84dbb848460b"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8aa3bbfb15fa67b49a7afb138344b22b2ab36333f9dc640aa8e002b254975621"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:1393e3c66f2b697e2b7d9f40c2720e1812b410b3536ceaa1d0170bd0636b286a"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-win32.whl", hash = "sha256:17975cc8b040c05301ced06cbda5dbd2b2d6c2b45e5e2164f0fb35774c66c5eb"},
+    {file = "bencode_rs-0.0.7-cp310-abi3-win_amd64.whl", hash = "sha256:723c611af79972fc19aca5482f3c1372613e2bbfd618714f336578749db36080"},
+    {file = "bencode_rs-0.0.7.tar.gz", hash = "sha256:ac975fe2901154b6882411fdafe44fd0fd54c21bca6c9f546941336482c8bd7b"},
 ]
 
 [[package]]
