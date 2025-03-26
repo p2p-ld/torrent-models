@@ -5,7 +5,7 @@ description = ".torrent file parsing and creation with pydantic"
 authors = [
     {name = "sneakers-the-rat", email = "sneakers-the-rat@protonmail.com"},
 ]
-dependencies = ["pydantic>=2.10.6", "bencode-rs>=0.0.7"]
+dependencies = ["pydantic>=2.10.6", "bencode-rs>=0.0.7", "tqdm>=4.67.1"]
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "EUPL-1.2"}
@@ -32,6 +32,9 @@ repository = "https://github.com/p2p-ld/torrent-pyd"
 tests = [
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
+    "pytest-codspeed>=3.2.0",
+    "torf>=4.3.0",
+    "pytest-profiling>=1.8.1",
 ]
 dev = [
     "torrent-pyd[tests]",
@@ -68,6 +71,7 @@ format.composite = [
     "ruff check --fix",
 ]
 mypy = "mypy"
+benchmark = "pytest tests/bench.py --codspeed"
 
 
 [tool.ruff]
@@ -123,6 +127,7 @@ fixable = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/test_*" = ["ANN001", "ANN201", "F841"]
+"tests/bench.py" = ["ANN001", "ANN201", "F841"]
 "tests/conftest.py" = ["F403", "E402"]
 "tests/fixtures/**/*" = ["F403"]
 

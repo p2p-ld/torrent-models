@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+prof
+.codspeed
+__tmp__
+*giant*.torrent
