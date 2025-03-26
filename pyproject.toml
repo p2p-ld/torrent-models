@@ -5,7 +5,12 @@ description = ".torrent file parsing and creation with pydantic"
 authors = [
     {name = "sneakers-the-rat", email = "sneakers-the-rat@protonmail.com"},
 ]
-dependencies = ["pydantic>=2.10.6", "bencode-rs>=0.0.7", "tqdm>=4.67.1"]
+dependencies = [
+    "pydantic>=2.10.6",
+    "bencode-rs>=0.0.7",
+    "tqdm>=4.67.1",
+    'typing-extensions>=4.13.0; python_version<"3.12"',
+]
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "EUPL-1.2"}
