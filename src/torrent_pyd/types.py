@@ -14,7 +14,7 @@ from pydantic import (
 if sys.version_info < (3, 12):
     from typing_extensions import TypeAliasType
 else:
-    from typing import TypeAlias as TypeAliasType
+    from typing import TypeAliasType
 
 
 def _timestamp_to_datetime(val: int | datetime) -> datetime:
