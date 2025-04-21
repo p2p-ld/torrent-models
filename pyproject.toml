@@ -1,5 +1,5 @@
 [project]
-name = "torrent-pyd"
+name = "torrent-pydantic"
 dynamic=["version"]
 description = ".torrent file parsing and creation with pydantic"
 authors = [
@@ -42,7 +42,7 @@ tests = [
     "pytest-profiling>=1.8.1",
 ]
 dev = [
-    "torrent-pyd[tests]",
+    "torrent-pydantic[tests]",
     "ruff>=0.11.2",
     "black>=25.1.0",
     "mypy>=1.15.0",

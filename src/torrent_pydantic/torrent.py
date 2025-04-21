@@ -5,7 +5,7 @@ from typing import Literal as L
 import bencode_rs
 from pydantic import BaseModel, Field, model_validator
 
-from torrent_pyd.types import (
+from torrent_pydantic.types import (
     ByteStr,
     ByteUrl,
     FilePart,

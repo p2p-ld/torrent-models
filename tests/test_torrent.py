@@ -1,4 +1,4 @@
-from torrent_pyd.torrent import Torrent
+from torrent_pydantic.torrent import Torrent
 
 
 def test_parse_hybrid():

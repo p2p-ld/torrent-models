@@ -1,13 +1,14 @@
-# torrent-pyd
+# torrent-pydantic
+
 .torrent file parsing and creation with pydantic
 
 ~ alpha software primarily intended for use with [sciop](https://codeberg.org/Safeguarding/sciop) ~
 
 ## Initial development
 
-- [ ] Parsing
-  - [ ] v1
-  - [ ] v2
+- [x] Parsing
+  - [x] v1
+  - [x] v2
 - [ ] Generation
 
 ## See also
