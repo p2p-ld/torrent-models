@@ -169,11 +169,11 @@ def _validate_pieces(pieces: bytes | list[bytes]) -> list[bytes]:
 
 
 Pieces = Annotated[
-    list[bytes], AfterValidator(_validate_pieces), PlainSerializer(lambda x: b"".join(x))
+    list[bytes], BeforeValidator(_validate_pieces), PlainSerializer(lambda x: b"".join(x))
 ]
 
 FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[bytes]})
 
 FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
-    "FileTreeType", Annotated[dict[bytes, dict[L[""], FileTreeItem] | "FileTreeType"], "ft"]  # type: ignore
+    "FileTreeType", Annotated[dict[bytes, dict[L[""] | FileTreeItem, "FileTreeType"]], "ft"]  # type: ignore
 )
