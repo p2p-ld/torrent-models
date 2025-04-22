@@ -30,7 +30,7 @@ classifiers = [
     "Typing :: Typed"
 ]
 [project.urls]
-repository = "https://github.com/p2p-ld/torrent-pyd"
+repository = "https://github.com/p2p-ld/torrent-pydantic"
 
 
 [project.optional-dependencies]
@@ -46,7 +46,16 @@ dev = [
     "ruff>=0.11.2",
     "black>=25.1.0",
     "mypy>=1.15.0",
+    "types-tqdm>=4.67.0.20250417",
 ]
+cli = [
+    "click>=8.1.8",
+    "humanize>=4.12.2",
+]
+
+[project.scripts]
+torrentpd = "torrent_pydantic.cli.main:main"
+
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
@@ -81,7 +90,7 @@ benchmark = "pytest tests/bench.py --codspeed"
 
 [tool.ruff]
 target-version = "py311"
-include = ["src/torrent_pyd/**/*.py", "tests/**/*.py", "pyproject.toml"]
+include = ["src/torrent_pydantic/**/*.py", "tests/**/*.py", "pyproject.toml"]
 exclude = []
 line-length = 100
 
@@ -138,12 +147,12 @@ fixable = ["ALL"]
 
 [tool.black]
 target-version = ['py311', 'py312', 'py313']
-include = "(?:tests|torrent_pyd)/.*\\.py$"
+include = "(?:tests|torrent_pydantic)/.*\\.py$"
 line-length = 100
 
 [tool.mypy]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
-packages = ["torrent_pyd"]
+packages = ["torrent_pydantic"]
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_context = true
@@ -151,10 +160,11 @@ show_column_numbers = true
 show_error_code_links = true
 pretty = true
 color_output = true
+plugins = ['pydantic.mypy']
 
 [tool.pytest]
 addopts = [
-    "--cov=torrent-pyd",
+    "--cov=torrent-pydantic",
     "--cov-append",
 ]
 markers = []

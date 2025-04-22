@@ -1,79 +1,38 @@
+from math import ceil
 from pathlib import Path
-from typing import Any
-from typing import Literal as L
+from typing import Any, Self, cast
 
 import bencode_rs
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
+from torrent_pydantic.base import ConfiguredBase
+from torrent_pydantic.const import EXCLUDE_FILES
+from torrent_pydantic.info import (
+    FileItem,
+    InfoDictHybrid,
+    InfoDictHybridCreate,
+    InfoDictV1,
+    InfoDictV1Base,
+    InfoDictV2,
+    InfoDictV2Base,
+)
 from torrent_pydantic.types import (
     ByteStr,
     ByteUrl,
-    FilePart,
-    FileTree,
-    PieceLength,
-    Pieces,
+    TorrentVersion,
     UnixDatetime,
     str_keys,
 )
+from torrent_pydantic.v1 import hash_pieces
 
 PieceLayers = dict[bytes, bytes]
 
 
-class FileItem(BaseModel):
-    length: int
-    path: list[FilePart]
-    attr: L[b"p"] | None = None
-
-
-# class FileTree(RootModel):
+# class FileTreeType(RootModel):
 #     root: dict[FileName,dict[L[''], FileTreeItem]]
 
 
-class InfoDictRoot(BaseModel):
-    """Fields shared by v1 and v2 infodicts"""
-
-    name: ByteStr
-    piece_length: PieceLength = Field(alias="piece length")
-    source: ByteStr | None = None
-
-
-class InfoDictV1(InfoDictRoot):
-
-    pieces: Pieces
-    length: int | None = None
-    files: list[FileItem] | None = Field(None)
-
-    @model_validator(mode="after")
-    @classmethod
-    def length_xor_files(cls, val: dict) -> dict:
-        """
-        There is also a key length or a key files, but not both or neither.
-        If length is present then the download represents a single file,
-        otherwise it represents a set of files which go in a directory structure.
-        """
-        if "length" in val or getattr(val, "length", None) is not None:
-            assert (
-                "files" not in val and getattr(val, "files", None) is None
-            ), "Torrents may have `length` or `files` but not both."
-        elif "files" in val or getattr(val, "files", None) is not None:
-            assert (
-                "length" not in val and getattr(val, "length", None) is None
-            ), "Torrents may have `length` or `files` but not both."
-        else:
-            raise ValueError("Either `length` or `files` must be present")
-        return val
-
-
-class InfoDictV2(InfoDictRoot):
-    meta_version: int = Field(2, alias="meta version")
-    file_tree: FileTree = Field(alias="file tree")
-
-
-class InfoDictHybrid(InfoDictV1, InfoDictV2):
-    pass
-
-
-class Torrent(BaseModel):
+class TorrentBase(ConfiguredBase):
     announce: ByteUrl
     announce_list: list[list[ByteUrl]] | None = Field(default=None, alias="announce-list")
     comment: ByteStr | None = None
@@ -82,21 +41,222 @@ class Torrent(BaseModel):
     info: InfoDictV1 | InfoDictV2 | InfoDictHybrid = Field(..., union_mode="left_to_right")
     piece_layers: PieceLayers | None = Field(None, alias="piece layers")
 
-    # @model_validator(mode="before")
-    # def str_keys(cls, value: dict[bytes, Any]) -> dict[str, Any]:
-    #     return {k.decode('utf-8'): v for k, v in value.items()}
-
-    def __init__(__pydantic_self__, decoded: dict[bytes, Any] | None = None, **data: Any) -> None:
+    def __init__(
+        __pydantic_self__, decoded: dict[str | bytes, Any] | None = None, **data: Any
+    ) -> None:
         if decoded is not None:
-            decoded.update(data)
-            data = decoded
+            # we fix these incompatible types in str_keys
+            decoded.update(data)  # type: ignore
+            data = decoded  # type: ignore
+
         if any([isinstance(k, bytes) for k in data]):
-            data = str_keys(data)
+            data = str_keys(data)  # type: ignore
         super().__init__(**data)
 
     @classmethod
-    def read(cls, path: Path | str) -> "Torrent":
+    def read(cls, path: Path | str, decode_str: bool = False) -> Self:
         with open(path, "rb") as tfile:
             tdata = tfile.read()
         tdict = bencode_rs.bdecode(tdata)
-        return Torrent(decoded=tdict)
+        return cls(decoded=tdict)
+
+    @property
+    def torrent_version(self) -> TorrentVersion:
+        if isinstance(self.info, InfoDictV1Base) and not isinstance(self.info, InfoDictV2Base):
+            return TorrentVersion.v1
+        elif isinstance(self.info, InfoDictV2Base) and not isinstance(self.info, InfoDictV1Base):
+            return TorrentVersion.v2
+        else:
+            return TorrentVersion.hybrid
+
+
+class Torrent(TorrentBase):
+    """
+    A valid torrent file, including hashes.
+    """
+
+    @model_validator(mode="after")
+    def piece_layers_if_v2(self) -> Self:
+        """If we are a v2 or hybrid torrent, we should have piece layers"""
+        if self.torrent_version in (TorrentVersion.v2, TorrentVersion.hybrid):
+            assert self.piece_layers is not None, "Hybrid and v2 torrents must have piece layers"
+        return self
+
+    @model_validator(mode="after")
+    def pieces_layers_correct(self) -> Self:
+        """
+        All files with a length longer than the piece length should be in piece layers,
+        Piece layers should have the correct number of hashes
+        """
+        if self.torrent_version == TorrentVersion.v1:
+            return self
+        self.piece_layers = cast(dict[bytes, bytes], self.piece_layers)
+        self.info = cast(InfoDictV2 | InfoDictHybrid, self.info)
+        for path, file_info in self.info.flat_tree.items():
+            if file_info["length"] > self.info.piece_length:
+                assert file_info["pieces root"] in self.piece_layers, (
+                    f"file {path} does not have a matching piece root in the piece layers dict. "
+                    f"Expected to find: {file_info['pieces root']}"  # type: ignore
+                )
+                expected_pieces = ceil(file_info["length"] / self.info.piece_length)
+                assert len(self.piece_layers[file_info["pieces root"]]) == expected_pieces * 32, (
+                    f"File {path} does not have the correct number of piece hashes. "
+                    f"Expected {expected_pieces} hashes from file length {file_info['length']} "
+                    f"and piece length {self.info.piece_length}. "
+                    f"Got {len(self.piece_layers[file_info['pieces root']]) / 32}"
+                )
+        return self
+
+    def bencode(self) -> bytes:
+        dumped = self.model_dump(exclude_none=True)
+        return bencode_rs.bencode(dumped)
+
+
+class TorrentCreate(TorrentBase):
+    """
+    A programmatically created torrent that may not have its hashes computed yet.
+
+    Torrents may be created *either* by passing an info dict with all details,
+    (with or without piece hashes), *or* by using a handful of convenience fields.
+    E.g. rather than needing to pass a fully instantiated file tree,
+    one can just pass a list of files to ``files``
+    """
+
+    announce: ByteUrl | None = None  # type: ignore
+    info: InfoDictHybridCreate = Field(default_factory=InfoDictHybridCreate)  # type: ignore
+    paths: list[Path] | None = Field(
+        None,
+        description="""
+        Convenience field for creating torrents from lists of files.
+        Can be either relative or absolute.
+        Paths must be located beneath the path root, passed either explicitly or using
+        cwd (default).
+        If absolute, paths are made relative to the path root.
+        """,
+    )
+    path_root: Path = Field(default_factory=Path, description="Path to interpret paths relative to")
+
+    trackers: list[ByteUrl] | list[list[ByteUrl]] | None = Field(
+        None,
+        description="Convenience method for declaring tracker lists."
+        "If a flat list, put each tracker in a separate tier."
+        "Otherwise, sublists indicate tiers.",
+    )
+
+    @model_validator(mode="after")
+    def files_xor_info_files(self) -> Self:
+        """Can only specify convenience file field or fill the file field in the infodict"""
+        assert bool(self.paths) != (
+            self.info.files is not None or self.info.length is not None
+        ), "Can only pass the top-level files field OR the files list/length in the infodict"
+        return self
+
+    def generate(
+        self, version: TorrentVersion | str, n_processes: int | None = None, progress: bool = False
+    ) -> Torrent:
+        """
+        Generate a torrent file, hashing its pieces and transforming convenience values
+        to valid torrent values.
+        """
+        if isinstance(version, str):
+            version = TorrentVersion.__members__[version]
+
+        if version == TorrentVersion.v1:
+            return self._generate_v1(n_processes, progress)
+        elif version == TorrentVersion.v2:
+            return self._generate_v2(n_processes, progress)
+        elif version == TorrentVersion.hybrid:
+            return self._generate_hybrid(n_processes, progress)
+        else:
+            raise ValueError(f"Unknown torrent version: {version}")
+
+    def _generate_v1(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+        dumped = self.model_dump(
+            exclude_none=True, exclude={"files", "paths", "path_root", "trackers"}, by_alias=False
+        )
+        files = (
+            self.paths
+            if self.paths
+            else [Path(*f.path) for f in cast(list[FileItem], self.info.files)]
+        )
+
+        files = clean_files(files, relative_to=self.path_root)
+
+        if not self.info.files:
+            dumped["info"]["files"] = [
+                FileItem(path=list(f.parts), length=(self.path_root / f).stat().st_size)
+                for f in files
+            ]
+
+        if "pieces" not in dumped["info"]:
+            dumped["info"]["pieces"] = hash_pieces(
+                files,
+                piece_length=self.info.piece_length,
+                path_root=self.path_root,
+                sort=False,
+                progress=progress,
+                n_processes=n_processes,
+            )
+
+        trackers = self._gather_trackers()
+        if trackers:
+            dumped["announce"] = trackers[0][0]
+            dumped["announce-list"] = trackers
+        info = InfoDictV1(**dumped["info"])
+        del dumped["info"]
+        return Torrent(info=info, **dumped)
+
+    def _generate_v2(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+        raise NotImplementedError()
+
+    def _generate_hybrid(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+        raise NotImplementedError()
+
+    def _gather_trackers(self) -> list[list[ByteUrl]] | None:
+        if self.trackers:
+            if isinstance(self.trackers[0], list):
+                self.trackers = cast(list[list[ByteUrl]], self.trackers)
+                return self.trackers
+            else:
+                self.trackers = cast(list[ByteUrl], self.trackers)
+                return [[t] for t in self.trackers]
+        elif self.announce_list:
+            if self.announce and self.announce_list[0][0] != self.announce:
+                return [[self.announce]] + self.announce_list
+            else:
+                return self.announce_list
+        else:
+            return None
+
+
+def list_files(path: Path | str) -> list[Path]:
+    """
+    Recursively list files relative to path, sorting, excluding known system files
+    """
+    path = Path(path)
+    if path.is_file():
+        return [path]
+
+    paths = list(path.rglob("*"))
+
+    return clean_files(paths, path)
+
+
+def clean_files(paths: list[Path], relative_to: Path) -> list[Path]:
+    """
+    Remove system files, and make paths relative to some directory root
+    """
+    cleaned = []
+    for f in paths:
+        if f.is_absolute():
+            abs_f = f
+            # no absolute paths in the torrent plz
+            rel_f = f.relative_to(relative_to)
+        else:
+            abs_f = relative_to / f
+            rel_f = f
+        if abs_f.is_file() and f.name not in EXCLUDE_FILES:
+            cleaned.append(rel_f)
+
+    cleaned = sorted(cleaned)
+    return cleaned

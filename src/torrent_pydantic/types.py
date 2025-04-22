@@ -1,6 +1,7 @@
 import sys
 from datetime import datetime
-from typing import Annotated, NotRequired, TypeAlias
+from enum import StrEnum
+from typing import Annotated, NotRequired, TypeAlias, cast
 from typing import Literal as L
 
 from pydantic import (
@@ -15,6 +16,14 @@ if sys.version_info < (3, 12):
     from typing_extensions import TypeAliasType, TypedDict
 else:
     from typing import TypeAliasType, TypedDict
+
+
+class TorrentVersion(StrEnum):
+    """Version of the bittorrent .torrent file spec"""
+
+    v1 = "v1"
+    v2 = "v2"
+    hybrid = "hybrid"
 
 
 def _timestamp_to_datetime(val: int | datetime) -> datetime:
@@ -74,6 +83,7 @@ def str_keys(
 
     if _isdict or value.__class__.__name__ == "dict":
         new_value = {}
+        value = cast(dict, value)
         for k, v in value.items():
             try:
                 if isinstance(k, bytes):
@@ -97,7 +107,7 @@ def str_keys(
         return value
 
 
-def str_keys_list(value: list[dict | BaseModel]) -> list[dict | BaseModel]:
+def str_keys_list(value: list[dict | BaseModel]) -> list[dict | list | BaseModel]:
     return [str_keys(v) for v in value]
 
 
@@ -110,6 +120,10 @@ def _to_str(value: str | bytes) -> str:
 def _to_bytes(value: str | bytes) -> bytes:
     if isinstance(value, str):
         value = value.encode("utf-8")
+    elif isinstance(value, AnyUrl):
+        value = str(value).encode("utf-8")
+    else:
+        value = str(value).encode("utf-8")
     return value
 
 
@@ -122,14 +136,15 @@ FilePart: TypeAlias = ByteStr
 """Placeholder in case specific validation is needed for filenames"""
 
 
-def _divisible_by_16kib(size: int) -> bool:
-    if size < 0:
-        return False
-    return size % (16 * (2**10)) == 0
+def _divisible_by_16kib(size: int) -> int:
+    assert size > (16 * (2**10)), "Size must be at least 16 KiB"
+    assert size % (16 * (2**10)) == 0, "Size must be divisible by 16 KiB"
+    return size
 
 
 def _power_of_two(n: int) -> int:
-    return (n & (n - 1) == 0) and n != 0
+    assert (n & (n - 1) == 0) and n != 0, "Piece size must be a power of two"
+    return n
 
 
 def _validate_size(size: int) -> int:
@@ -139,19 +154,26 @@ def _validate_size(size: int) -> int:
     return size
 
 
-PieceLength = Annotated[int, AfterValidator(_validate_size)]
+V1PieceLength = Annotated[int, AfterValidator(_power_of_two)]
+V2PieceLength = Annotated[int, AfterValidator(_divisible_by_16kib)]
 
 
-def _validate_pieces(pieces: bytes) -> list[bytes]:
-    assert len(pieces) % 20 == 0, "Pieces length must be divisible by 20"
-    pieces = [pieces[i : i + 20] for i in range(0, len(pieces), 20)]
+def _validate_pieces(pieces: bytes | list[bytes]) -> list[bytes]:
+    if isinstance(pieces, bytes):
+        assert len(pieces) % 20 == 0, "Pieces length must be divisible by 20"
+        pieces = [pieces[i : i + 20] for i in range(0, len(pieces), 20)]
+    else:
+        assert all([len(piece) == 20 for piece in pieces]), "Pieces length must be divisible by 20"
+
     return pieces
 
 
-Pieces = Annotated[bytes, AfterValidator(_validate_pieces), PlainSerializer(lambda x: b"".join(x))]
+Pieces = Annotated[
+    list[bytes], AfterValidator(_validate_pieces), PlainSerializer(lambda x: b"".join(x))
+]
 
 FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[bytes]})
 
-FileTree: TypeAlias = TypeAliasType(
-    "FileTree", Annotated[dict[bytes, dict[L[""], FileTreeItem], "FileTree"], "ft"]
+FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
+    "FileTreeType", Annotated[dict[bytes, dict[L[""], FileTreeItem] | "FileTreeType"], "ft"]  # type: ignore
 )
