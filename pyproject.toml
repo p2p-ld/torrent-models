@@ -34,24 +34,31 @@ repository = "https://github.com/p2p-ld/torrent-pydantic"
 
 
 [project.optional-dependencies]
+cli = [
+    "click>=8.1.8",
+    "humanize>=4.12.2",
+]
 tests = [
+    "torrent-pydantic[cli]",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
     "pytest-codspeed>=3.2.0",
     "torf>=4.3.0",
     "pytest-profiling>=1.8.1",
 ]
+mypy = [
+    "torrent-pydantic[cli]",
+    "types-tqdm>=4.67.0.20250417",
+]
 dev = [
-    "torrent-pydantic[tests]",
+    "torrent-pydantic[tests,mypy]",
     "ruff>=0.11.2",
     "black>=25.1.0",
     "mypy>=1.15.0",
     "types-tqdm>=4.67.0.20250417",
 ]
-cli = [
-    "click>=8.1.8",
-    "humanize>=4.12.2",
-]
+
+
 
 [project.scripts]
 torrentpd = "torrent_pydantic.cli.main:main"

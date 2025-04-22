@@ -50,6 +50,6 @@ jobs:
       - name: Install mypy
         run: |
           pip install mypy
-          pip install '.[cli]'
+          pip install '.[mypi]'
       - name: Mypy type checking
         run: mypy
