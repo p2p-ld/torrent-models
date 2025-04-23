@@ -125,7 +125,8 @@ class InfoDictV2Create(InfoDictV2Base):
 class InfoDictHybridCreate(InfoDictV1Create, InfoDictV2Create):
     """An infodict of a hybrid torrent that may or may not have its pieces hashed yet"""
 
-    piece_length: V2PieceLength = Field(alias="piece length")
+    name: ByteStr | None = None
+    piece_length: V1PieceLength | V2PieceLength | None = Field(None, alias="piece length")
 
 
 class InfoDictHybrid(InfoDictV1, InfoDictV2):

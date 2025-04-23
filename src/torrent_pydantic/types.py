@@ -1,7 +1,7 @@
 import sys
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, NotRequired, TypeAlias, cast
+from typing import Annotated, NotRequired, TypeAlias, Union, cast
 from typing import Literal as L
 
 from pydantic import (
@@ -175,5 +175,5 @@ Pieces = Annotated[
 FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[bytes]})
 
 FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
-    "FileTreeType", Annotated[dict[bytes, dict[L[""] | FileTreeItem, "FileTreeType"]], "ft"]  # type: ignore
+    "FileTreeType", Annotated[dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]], "ft"]  # type: ignore
 )

@@ -1,9 +1,13 @@
 from math import ceil
 from pathlib import Path
 from typing import Any, Self, cast
+from typing import Literal as L
 
 import bencode_rs
-from pydantic import Field, model_validator
+from pydantic import (
+    Field,
+    model_validator,
+)
 
 from torrent_pydantic.base import ConfiguredBase
 from torrent_pydantic.const import EXCLUDE_FILES
@@ -21,11 +25,14 @@ from torrent_pydantic.types import (
     ByteUrl,
     TorrentVersion,
     UnixDatetime,
+    V1PieceLength,
+    V2PieceLength,
     str_keys,
 )
 from torrent_pydantic.v1 import hash_pieces
+from torrent_pydantic.v2 import FileTree, PieceLayers
 
-PieceLayers = dict[bytes, bytes]
+PieceLayersType = dict[bytes, bytes]
 
 
 # class FileTreeType(RootModel):
@@ -37,13 +44,23 @@ class TorrentBase(ConfiguredBase):
     announce_list: list[list[ByteUrl]] | None = Field(default=None, alias="announce-list")
     comment: ByteStr | None = None
     created_by: ByteStr | None = Field(None, alias="created by")
-    creation_date: UnixDatetime | None = None
+    creation_date: UnixDatetime | None = Field(default=None, alias="creation date")
     info: InfoDictV1 | InfoDictV2 | InfoDictHybrid = Field(..., union_mode="left_to_right")
-    piece_layers: PieceLayers | None = Field(None, alias="piece layers")
+    piece_layers: PieceLayersType | None = Field(None, alias="piece layers")
+    url_list: list[ByteUrl] | ByteUrl | None = Field(
+        None, alias="url-list", description="List of webseeds"
+    )
 
-    def __init__(
-        __pydantic_self__, decoded: dict[str | bytes, Any] | None = None, **data: Any
-    ) -> None:
+    @classmethod
+    def read(cls, path: Path | str, decode_str: bool = False) -> Self:
+        with open(path, "rb") as tfile:
+            tdata = tfile.read()
+        tdict = bencode_rs.bdecode(tdata)
+        return cls.from_decoded(decoded=tdict)
+
+    @classmethod
+    def from_decoded(cls, decoded: dict[str | bytes, Any], **data: Any) -> Self:
+        """Create from bdecoded dict"""
         if decoded is not None:
             # we fix these incompatible types in str_keys
             decoded.update(data)  # type: ignore
@@ -51,14 +68,7 @@ class TorrentBase(ConfiguredBase):
 
         if any([isinstance(k, bytes) for k in data]):
             data = str_keys(data)  # type: ignore
-        super().__init__(**data)
-
-    @classmethod
-    def read(cls, path: Path | str, decode_str: bool = False) -> Self:
-        with open(path, "rb") as tfile:
-            tdata = tfile.read()
-        tdict = bencode_rs.bdecode(tdata)
-        return cls(decoded=tdict)
+        return cls(**data)
 
     @property
     def torrent_version(self) -> TorrentVersion:
@@ -108,7 +118,7 @@ class Torrent(TorrentBase):
         return self
 
     def bencode(self) -> bytes:
-        dumped = self.model_dump(exclude_none=True)
+        dumped = self.model_dump(exclude_none=True, by_alias=True)
         return bencode_rs.bencode(dumped)
 
 
@@ -122,7 +132,10 @@ class TorrentCreate(TorrentBase):
     one can just pass a list of files to ``files``
     """
 
+    # make parent types optional
     announce: ByteUrl | None = None  # type: ignore
+
+    # convenience fields
     info: InfoDictHybridCreate = Field(default_factory=InfoDictHybridCreate)  # type: ignore
     paths: list[Path] | None = Field(
         None,
@@ -142,6 +155,9 @@ class TorrentCreate(TorrentBase):
         "If a flat list, put each tracker in a separate tier."
         "Otherwise, sublists indicate tiers.",
     )
+    piece_length: V1PieceLength | V2PieceLength | None = Field(
+        None, description="Convenience method for passing piece length"
+    )
 
     @model_validator(mode="after")
     def files_xor_info_files(self) -> Self:
@@ -149,6 +165,34 @@ class TorrentCreate(TorrentBase):
         assert bool(self.paths) != (
             self.info.files is not None or self.info.length is not None
         ), "Can only pass the top-level files field OR the files list/length in the infodict"
+        return self
+
+    @model_validator(mode="after")
+    def no_duplicated_params(self) -> Self:
+        """
+        Ensure that values that can be set from the top level convenience fields aren't doubly set,
+
+        We don't set the accompanying values in the infodict on instantiation because
+        this object is intended to be a programmatic constructor object,
+        so we expect these values to change and don't want to have to worry about
+        state consistency in it -
+        all values are gathered and validated when the torrent is generated.
+        """
+        if self.paths:
+            assert not self.info.files, "Can't pass both paths and info.files"
+            assert not self.info.file_tree, "Can't pass both paths and info.file_tree"
+        if self.trackers:
+            assert not self.announce, "Can't pass both trackers and announce"
+            assert not self.announce_list, "Can't pass both trackers and announce_list"
+        if self.piece_length:
+            assert not self.info.piece_length, "Can't pass both piece_length and info.piece_length"
+        return self
+
+    @model_validator(mode="after")
+    def name_from_path_root(self) -> Self:
+        """If `name` is not provided, infer it from the path root"""
+        if not self.info.name:
+            self.info.name = self.path_root.name
         return self
 
     def generate(
@@ -170,10 +214,33 @@ class TorrentCreate(TorrentBase):
         else:
             raise ValueError(f"Unknown torrent version: {version}")
 
-    def _generate_v1(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+    def _generate_common(self) -> dict:
+        # dump just the fields we want to have in the final torrent,
+        # excluding top-level convenience fields (set in the generate methods),
+        # and hash values which are created during generation
         dumped = self.model_dump(
-            exclude_none=True, exclude={"files", "paths", "path_root", "trackers"}, by_alias=False
+            exclude_none=True,
+            exclude={
+                "files",
+                "paths",
+                "path_root",
+                "trackers",
+                "file_tree",
+                "meta_version",
+                "piece_layers",
+                "piece_length",
+            },
+            by_alias=False,
         )
+
+        dumped["info"]["piece_length"] = (
+            self.piece_length if self.piece_length else self.info.piece_length
+        )
+        dumped.update(self._gather_trackers())
+        return dumped
+
+    def _generate_v1(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+        dumped = self._generate_common()
         files = (
             self.paths
             if self.paths
@@ -198,35 +265,54 @@ class TorrentCreate(TorrentBase):
                 n_processes=n_processes,
             )
 
-        trackers = self._gather_trackers()
-        if trackers:
-            dumped["announce"] = trackers[0][0]
-            dumped["announce-list"] = trackers
         info = InfoDictV1(**dumped["info"])
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
     def _generate_v2(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
-        raise NotImplementedError()
+        dumped = self._generate_common()
+        if self.paths:
+            paths = clean_files(self.paths, relative_to=self.path_root)
+        else:
+            # remake with new hashes
+            # paths within the file tree should already be relative, no need to fix them
+            paths = [path for path in FileTree.flatten_tree(self.info.file_tree)]
+
+        if "piece_layers" not in dumped or "file_tree" not in dumped["info"]:
+            piece_layers = PieceLayers(
+                paths=paths, piece_length=dumped["info"]["piece_length"], path_root=self.path_root
+            ).make(n_processes=n_processes, progress=progress)
+            dumped["piece_layers"] = piece_layers.piece_layers
+            dumped["info"]["file_tree"] = piece_layers.file_tree.tree
+
+        info = InfoDictV2(**dumped["info"])
+        del dumped["info"]
+        return Torrent(info=info, **dumped)
 
     def _generate_hybrid(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
         raise NotImplementedError()
 
-    def _gather_trackers(self) -> list[list[ByteUrl]] | None:
+    def _gather_trackers(
+        self,
+    ) -> dict[L["announce"] | L["announce-list"], ByteUrl | list[list[ByteUrl]]]:
+        # FIXME: hideous
         if self.trackers:
             if isinstance(self.trackers[0], list):
-                self.trackers = cast(list[list[ByteUrl]], self.trackers)
-                return self.trackers
+                if len(self.trackers[0]) == 1 and len(self.trackers[0][0]) == 1:
+                    return {"announce": self.trackers[0][0]}
+                else:
+                    return {"announce": self.trackers[0][0], "announce-list": self.trackers}
             else:
-                self.trackers = cast(list[ByteUrl], self.trackers)
-                return [[t] for t in self.trackers]
-        elif self.announce_list:
-            if self.announce and self.announce_list[0][0] != self.announce:
-                return [[self.announce]] + self.announce_list
-            else:
-                return self.announce_list
+                if len(self.trackers) == 1:
+                    return {"announce": self.trackers[0]}
+                else:
+                    self.trackers = cast(list[ByteUrl], self.trackers)
+                    return {
+                        "announce": self.trackers[0],
+                        "announce-list": [[t] for t in self.trackers],
+                    }
         else:
-            return None
+            return {}
 
 
 def list_files(path: Path | str) -> list[Path]:
