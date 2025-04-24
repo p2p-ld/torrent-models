@@ -18,8 +18,8 @@ from anyio import open_file, run
 from pydantic import BaseModel
 from tqdm.asyncio import tqdm
 
-from torrent_pydantic.junkdrawer import DummyPbar
-from torrent_pydantic.types import FileTreeItem, FileTreeType
+from torrent_models.junkdrawer import DummyPbar
+from torrent_models.types import FileTreeItem, FileTreeType
 
 BLOCK_SIZE = 16 * (2**10)
 

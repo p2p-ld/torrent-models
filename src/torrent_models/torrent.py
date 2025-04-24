@@ -9,9 +9,9 @@ from pydantic import (
     model_validator,
 )
 
-from torrent_pydantic.base import ConfiguredBase
-from torrent_pydantic.const import EXCLUDE_FILES
-from torrent_pydantic.info import (
+from torrent_models.base import ConfiguredBase
+from torrent_models.const import EXCLUDE_FILES
+from torrent_models.info import (
     FileItem,
     InfoDictHybrid,
     InfoDictHybridCreate,
@@ -20,7 +20,7 @@ from torrent_pydantic.info import (
     InfoDictV2,
     InfoDictV2Base,
 )
-from torrent_pydantic.types import (
+from torrent_models.types import (
     ByteStr,
     ByteUrl,
     TorrentVersion,
@@ -29,8 +29,8 @@ from torrent_pydantic.types import (
     V2PieceLength,
     str_keys,
 )
-from torrent_pydantic.v1 import hash_pieces
-from torrent_pydantic.v2 import FileTree, PieceLayers
+from torrent_models.v1 import hash_pieces
+from torrent_models.v2 import FileTree, PieceLayers
 
 PieceLayersType = dict[bytes, bytes]
 

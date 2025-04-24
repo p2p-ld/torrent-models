@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Generator, cast
 
 from tqdm import tqdm
 
-from torrent_pydantic.types import Pieces, V1PieceLength
+from torrent_models.types import Pieces, V1PieceLength
 
 if TYPE_CHECKING:
     from multiprocessing.pool import AsyncResult

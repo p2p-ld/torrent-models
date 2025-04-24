@@ -6,8 +6,8 @@ from typing import Literal as L
 from annotated_types import Gt, MinLen
 from pydantic import BaseModel, Field, model_validator
 
-from torrent_pydantic.base import ConfiguredBase
-from torrent_pydantic.types import (
+from torrent_models.base import ConfiguredBase
+from torrent_models.types import (
     ByteStr,
     FilePart,
     FileTreeItem,
@@ -16,7 +16,7 @@ from torrent_pydantic.types import (
     V1PieceLength,
     V2PieceLength,
 )
-from torrent_pydantic.v2 import FileTree
+from torrent_models.v2 import FileTree
 
 
 class FileItem(BaseModel):

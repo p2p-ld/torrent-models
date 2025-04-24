@@ -1,7 +1,7 @@
 import bencode_rs
 import pytest
 
-from torrent_pydantic.torrent import TorrentCreate
+from torrent_models.torrent import TorrentCreate
 
 from .conftest import DATA_DIR
 

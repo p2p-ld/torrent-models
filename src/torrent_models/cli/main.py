@@ -6,16 +6,16 @@ from typing import Literal as L
 import click
 import humanize
 
-from torrent_pydantic.const import DEFAULT_TORRENT_CREATOR
-from torrent_pydantic.info import InfoDictHybridCreate
-from torrent_pydantic.torrent import TorrentCreate, list_files
-from torrent_pydantic.types import V1PieceLength, V2PieceLength
+from torrent_models.const import DEFAULT_TORRENT_CREATOR
+from torrent_models.info import InfoDictHybridCreate
+from torrent_models.torrent import TorrentCreate, list_files
+from torrent_models.types import V1PieceLength, V2PieceLength
 
 
 @click.group("torrentpd")
 def main() -> None:
     """
-    torrent-pydantic CLI
+    torrent-models CLI
     """
 
 
