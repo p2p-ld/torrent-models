@@ -109,10 +109,10 @@ class MerkleTree:
             piece_length (int): in bytes, you know what it is.
         """
 
-        hashes = [h.hash for h in hashes if h.type == "block"]
-        hashes = sorted(hashes, key=lambda h: (h.path, h.idx))
+        leaf_hashes = [h for h in hashes if h.type == "block"]
+        leaf_hashes = sorted(leaf_hashes, key=lambda h: (h.path, h.idx))
         file_hashes = defaultdict(list)
-        for h in hashes:
+        for h in leaf_hashes:
             file_hashes[h.path].append(h)
 
         trees = []
