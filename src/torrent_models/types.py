@@ -10,6 +10,7 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     PlainSerializer,
+    SerializationInfo,
 )
 
 if sys.version_info < (3, 12):
@@ -117,7 +118,10 @@ def _to_str(value: str | bytes) -> str:
     return value
 
 
-def _to_bytes(value: str | bytes) -> bytes:
+def _to_bytes(value: str | bytes, info: SerializationInfo) -> bytes | str:
+    if info.context and info.context.get("mode") == "print":
+        return str(value)
+
     if isinstance(value, str):
         value = value.encode("utf-8")
     elif isinstance(value, AnyUrl):
@@ -168,12 +172,51 @@ def _validate_pieces(pieces: bytes | list[bytes]) -> list[bytes]:
     return pieces
 
 
+def _serialize_pieces(
+    pieces: list[bytes], info: SerializationInfo
+) -> bytes | list[bytes] | list[str]:
+    """Join piece lists to a big long byte string unless we're pretty printing"""
+    if info.context and info.context.get("mode") == "print":
+        if info.context.get("hash_repr") != "bytes":
+            pieces = [p.hex() for p in pieces]
+        if info.context.get("hash_truncate"):
+            pieces = [p[0:8] for p in pieces]
+        return pieces
+    return b"".join(pieces)
+
+
 Pieces = Annotated[
-    list[bytes], BeforeValidator(_validate_pieces), PlainSerializer(lambda x: b"".join(x))
+    list[bytes], BeforeValidator(_validate_pieces), PlainSerializer(_serialize_pieces)
 ]
 
-FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[bytes]})
+
+def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | list[str]:
+    if info.context and info.context.get("mode") == "print":
+        if info.context.get("hash_repr") != "bytes":
+            value = value.hex()
+        if info.context.get("hash_truncate"):
+            value = value[0:8]
+        # split layers
+        if len(value) > 64:
+            value = [value[i : i + 64] for i in range(0, len(value), 64)]
+
+    return value
+
+
+PieceLayerItem = Annotated[bytes, PlainSerializer(_serialize_v2_hash)]
+
+PieceLayersType = dict[PieceLayerItem, PieceLayerItem]
+
+FileTreeItem = TypedDict(
+    "FileTreeItem", {"length": int, "pieces root": NotRequired[PieceLayerItem]}
+)
 
 FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
-    "FileTreeType", Annotated[dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]], "ft"]  # type: ignore
+    "FileTreeType", dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]]  # type: ignore
 )
+
+
+class FileItem(BaseModel):
+    length: int
+    path: list[FilePart]
+    attr: L[b"p"] | None = None

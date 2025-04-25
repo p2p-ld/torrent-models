@@ -5,41 +5,48 @@ Helpers for v2 torrents
 import concurrent.futures
 import hashlib
 import multiprocessing as mp
-from collections import deque
+from collections import defaultdict, deque
+from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import cached_property
-from itertools import count
 from math import ceil
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Generator, Self, cast, overload
+from typing import Union, cast, overload
 
-from anyio import open_file, run
+from anyio import run
 from pydantic import BaseModel
 from tqdm.asyncio import tqdm
 
+from torrent_models.hashing.hasher import BLOCK_SIZE, Hash, iter_blocks
 from torrent_models.junkdrawer import DummyPbar
 from torrent_models.types import FileTreeItem, FileTreeType
-
-BLOCK_SIZE = 16 * (2**10)
-
-
-async def iter_blocks(path: Path) -> Generator[tuple[int, bytes], None, None]:
-    """Iterate 16KiB blocks"""
-    counter = count()
-    read_size = BLOCK_SIZE
-    async with await open_file(path, "rb") as f:
-        while read_size == BLOCK_SIZE:
-            read = await f.read(BLOCK_SIZE)
-            if len(read) > 0:
-                yield next(counter), read
-            read_size = len(read)
 
 
 @dataclass
 class MerkleTree:
     """
     Representation and computation of v2 merkle trees
+
+    A v2 merkle tree is a branching factor 2 tree where each of the leaf nodes is a 16KiB block.
+
+    Two layers of the tree are embedded in a torrent file:
+
+    - the ``piece layer``: the hashes from ``piece length/16KiB`` layers from the leaves.
+      or, the layer where each hash corresponds to a chunk of the file ``piece length`` long.
+    - the tree root.
+
+    Padding is performed in two steps:
+
+    - For files whose size is not a multiple of ``piece length``,
+      pad the *leaf hashes* with zeros
+      (the hashes, not the leaf data, i.e. 32 bytes not 16KiB of zeros)
+      such that there are enough blocks to complete a piece
+    - For files there the number of pieces does not create a balanced merkle tree,
+      pad the *pieces hashes* with identical piece hashes each ``piece length`` long
+      s.t. their leaf hashes are all zeros, as above.
+
+    These are separated because the padding added to the
 
     References:
         - https://www.bittorrent.org/beps/bep_0052_torrent_creator.py
@@ -82,6 +89,53 @@ class MerkleTree:
         _ = run(tree.hash_file, pool)
         return tree
 
+    @classmethod
+    def from_leaf_hashes(
+        cls, hashes: list[Hash], base_path: Path, piece_length: int
+    ) -> Union[list["MerkleTree"], "MerkleTree"]:
+        """
+        Create from a collection of leaf hashes.
+
+        If leaf hashes from multiple paths are found, return a list of merkle trees.
+
+        This method does *not* check that the trees are correct and complete -
+        it assumes that the collection of leaf hashes passed to it is already complete.
+        So e.g. it does not validate that the number of leaf hashes matches that which
+        would be expected given the file size.
+
+        Args:
+            hashes (list[Hash]): collection of leaf hashes, from a single or multiple files
+            base_path (Path): the base path that contains the relative paths in the leaf hashes
+            piece_length (int): in bytes, you know what it is.
+        """
+
+        hashes = [h.hash for h in hashes if h.type == "block"]
+        hashes = sorted(hashes, key=lambda h: (h.path, h.idx))
+        file_hashes = defaultdict(list)
+        for h in hashes:
+            file_hashes[h.path].append(h)
+
+        trees = []
+        for path, hashes in file_hashes.items():
+            # this is increasingly disturbing, clean this up
+            hash_bytes = [h.hash for h in hashes]
+            tree = MerkleTree(
+                path=base_path / path,
+                torrent_path=path,
+                piece_length=piece_length,
+                progress=False,
+                leaf_hashes=hash_bytes,
+            )
+            hash_bytes.extend([bytes(32)] * tree.n_pad_blocks)
+            tree.leaf_hashes = hash_bytes
+            tree.piece_hashes = tree.hash_pieces(hash_bytes)
+            tree.root_hash = tree.get_root_hash(tree.piece_hashes)
+            trees.append(tree)
+
+        if len(trees) == 1:
+            return trees[0]
+        return trees
+
     async def hash_file(
         self, pool: PoolType | None = None
     ) -> tuple[list[bytes], list[bytes], bytes]:
@@ -115,9 +169,9 @@ class MerkleTree:
         results = deque()
         leaf_hashes = []
 
-        async for idx, block in iter_blocks(self.path):
+        async for chunk in iter_blocks(self.path):
             read_pbar.update(1)
-            results.append(pool.apply_async(self.hash_block, (block, idx)))
+            results.append(pool.apply_async(self.hash_block, (chunk.chunk, chunk.idx)))
 
             if len(results) == 0:
                 continue
@@ -372,11 +426,33 @@ class FileTree(BaseModel):
     def from_flat(cls, tree: dict[str, FileTreeItem]) -> "FileTree":
         return cls(tree=cls.unflatten_tree(tree))
 
+    @classmethod
+    def from_trees(cls, trees: list[MerkleTree], base_path: Path | None = None) -> "FileTree":
+        flat = {}
+        for tree in trees:
+            if tree.torrent_path:
+                # tree already knows its relative directory, use that
+                rel_path = tree.torrent_path
+            else:
+                if base_path is None:
+                    raise ValueError(
+                        f"Merkle tree for {tree.path} does not have a torrent_path set,"
+                        f"and no base_path was provided."
+                        f"Unsure what relative path should go in a torrent file."
+                    )
+                rel_path = tree.path.relative_to(base_path)
+            flat[str(rel_path)] = FileTreeItem(
+                **{"pieces root": tree.root_hash, "length": tree.path.stat().st_size}
+            )
+        return cls.from_flat(flat)
+
 
 def _flatten_tree(val: dict, parts: list[str] | list[bytes] | None = None) -> dict:
     # NOT a general purpose dictionary walker.
     out: dict[bytes | str, dict] = {}
     if parts is None:
+        # top-level, copy the input value
+        val = deepcopy(val)
         parts = []
 
     for k, v in val.items():
@@ -425,29 +501,50 @@ class PieceLayers:
     they are joint objects
     """
 
-    paths: list[Path]
-    """paths of files within a torrent relative to path_root"""
     piece_length: int
     """piece length (hash piece_length/16KiB blocks per piece hash)"""
-    path_root: Path | None = field(default_factory=Path.cwd)
-    """root directory of where paths are located on the filesystem"""
-    piece_layers: dict[bytes, bytes] = field(default_factory=dict)
+    piece_layers: dict[bytes, bytes]
     """piece layers: mapping from root hash to concatenated piece hashes"""
-    file_tree: FileTree | None = None
+    file_tree: FileTree
 
-    def make(self, n_processes: int = mp.cpu_count(), progress: bool = False) -> Self:
+    @classmethod
+    def from_trees(cls, trees: list[MerkleTree], base_path: Path | None = None) -> "PieceLayers":
+        lengths = [t.piece_length for t in trees]
+        assert all(
+            [lengths[0] == ln for ln in lengths]
+        ), "Differing piece lengths in supplied merkle trees!"
+        piece_length = lengths[0]
+        piece_layers = {
+            tree.root_hash: b"".join(tree.piece_hashes) for tree in trees if tree.piece_hashes
+        }
+        file_tree = FileTree.from_trees(trees)
+        return PieceLayers(
+            piece_length=piece_length, piece_layers=piece_layers, file_tree=file_tree
+        )
+
+    @classmethod
+    def from_paths(
+        cls,
+        paths: list[Path],
+        piece_length: int,
+        path_root: Path | None = None,
+        n_processes: int = mp.cpu_count(),
+        progress: bool = False,
+    ) -> "PieceLayers":
         """
         Hash all the paths, construct the piece layers and file tree
         """
+        if path_root is None:
+            path_root = Path.cwd()
         if progress:
-            file_pbar = tqdm(total=len(self.paths), desc="Hashing files...", position=0)
+            file_pbar = tqdm(total=len(paths), desc="Hashing files...", position=0)
         else:
             file_pbar = DummyPbar()
 
         piece_layers = {}
         file_tree = {}
         pool = mp.Pool(processes=n_processes)
-        for path in self.paths:
+        for path in paths:
             file_pbar.set_description(f"Hashing {path}")
             if path.is_absolute():
                 raise ValueError(
@@ -455,9 +552,9 @@ class PieceLayers:
                     f"paths must be relative unless you want to put the whole filesystem "
                     f"in a torrent. (don't put the whole filesystem in a torrent)."
                 )
-            abs_path = self.path_root / path
+            abs_path = path_root / path
             tree = MerkleTree.from_path(
-                path=abs_path, piece_length=self.piece_length, pool=pool, progress=progress
+                path=abs_path, piece_length=piece_length, pool=pool, progress=progress
             )
             file_tree[str(path)] = FileTreeItem(
                 **{"pieces root": tree.root_hash, "length": abs_path.stat().st_size}
@@ -466,9 +563,13 @@ class PieceLayers:
                 piece_layers[tree.root_hash] = b"".join(tree.piece_hashes)
             file_pbar.update()
 
-        self.file_tree = FileTree.from_flat(file_tree)
-        self.piece_layers = piece_layers
+        file_tree = FileTree.from_flat(file_tree)
+        piece_layers = piece_layers
 
         file_pbar.close()
         pool.close()
-        return self
+        return PieceLayers(
+            piece_length=piece_length,
+            file_tree=file_tree,
+            piece_layers=piece_layers,
+        )

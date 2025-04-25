@@ -5,14 +5,18 @@ from typing import Literal as L
 
 import click
 import humanize
+from rich import print
+from rich.console import Group
+from rich.pretty import Pretty
+from rich.table import Table
 
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
 from torrent_models.info import InfoDictHybridCreate
-from torrent_models.torrent import TorrentCreate, list_files
-from torrent_models.types import V1PieceLength, V2PieceLength
+from torrent_models.torrent import Torrent, TorrentCreate, list_files
+from torrent_models.types import TorrentVersion, V1PieceLength, V2PieceLength
 
 
-@click.group("torrentpd")
+@click.group("torrent")
 def main() -> None:
     """
     torrent-models CLI
@@ -132,3 +136,100 @@ def make(
         )
     else:
         click.echo(bencoded)
+
+
+@main.command("print")
+@click.argument("torrent", type=click.Path(exists=True))
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="""
+              Verbose output, repeat for increasing verbosity\n
+              
+              -v show files in separate table
+              -vv show truncated v1 piece hashes
+              -vvv show everything as-is
+              """,
+)
+def pprint(torrent: Path, verbose: int = 0) -> None:
+    """
+    Print the contents of a torrent file.
+
+    By default, prints only the top-level metadata in a way that should always be
+    smaller than one screen.
+
+    Increase verbosity to show more of the torrent.
+
+    Hashes are printed as hexadecimal numbers and split into individual pieces,
+    but they are properly encoded in the torrent.
+    """
+    torrent = Path(torrent)
+    t = Torrent.read(torrent)
+    # summary stats
+    summary = {
+        "# Files": humanize.number.intcomma(t.n_files),
+        "Total Size": humanize.naturalsize(t.total_size, binary=True),
+        "Torrent Size": humanize.naturalsize(torrent.stat().st_size, binary=True),
+        "Piece Size": humanize.naturalsize(t.info.piece_length, binary=True),
+    }
+    v1_infohash = t.v1_infohash
+    v2_infohash = t.v2_infohash
+    if v1_infohash:
+        summary["V1 Infohash"] = v1_infohash.hex()
+    if v2_infohash:
+        summary["V2 Infohash"] = v2_infohash.hex()
+    table = Table(title=str(torrent.name), show_header=False)
+    table.add_column("", justify="left", style="magenta bold", no_wrap=True)
+    table.add_column("")
+    for k, v in summary.items():
+        table.add_row(k, v)
+
+    exclude = set()
+    context = {"mode": "print", "hash_truncate": True}
+    file_table = None
+    if verbose <= 1:
+        exclude = {"info": {"pieces", "file tree", "file_tree", "files"}, "piece_layers": True}
+    elif verbose <= 2:
+        exclude = {"info": {"file tree", "file_tree", "files"}, "piece_layers": True}
+    else:
+        context["hash_truncate"] = False
+
+    # make file table
+    if 1 <= verbose <= 2:
+        file_table = Table(title="Files")
+        file_table.add_column("Path", no_wrap=True)
+        file_table.add_column("Size")
+
+        if t.torrent_version == TorrentVersion.v1:
+            files = [
+                ("/".join(f.path), humanize.naturalsize(f.length, binary=True))
+                for f in t.info.files
+                if f.attr not in (b"p", "p")
+            ]
+        else:
+            file_table.add_column("Hash")
+            tree = t.flat_files
+            files = [
+                (
+                    str(k),
+                    humanize.naturalsize(v["length"], binary=True),
+                    v["pieces root"].hex()[0:8],
+                )
+                for k, v in tree.items()
+            ]
+
+        for f in files:
+            file_table.add_row(*f)
+
+    dumped = t.model_dump(by_alias=True, exclude=exclude, exclude_none=True, context=context)
+
+    if verbose < 1 or verbose > 2:
+        group = Group(
+            table,
+            Pretty(dumped),
+        )
+    elif verbose <= 2:
+        group = Group(table, Pretty(dumped), file_table)
+
+    print(group)

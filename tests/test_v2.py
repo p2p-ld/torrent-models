@@ -1,24 +1,24 @@
 import pytest
 
-from torrent_models.v2 import FileTree
+from torrent_models.hashing.v2 import FileTree
 
 # add test cases of paired flattened and unflattened file trees here:
 
 FILE_TREES = (
     {
-        b"directory": {
-            b"file1.exe": {b"": {b"length": 1, b"pieces root": b"sup"}},
-            b"subdir": {b"file2.exe": {b"": {b"length": 2, b"pieces root": b"sup"}}},
+        "directory": {
+            "file1.exe": {"": {"length": 1, "pieces root": "sup"}},
+            "subdir": {"file2.exe": {"": {"length": 2, "pieces root": "sup"}}},
         },
-        b"file3.exe": {b"": {b"length": 3, b"pieces root": b"sup"}},
+        "file3.exe": {"": {"length": 3, "pieces root": "sup"}},
     },
 )
 
 FLAT_FILE_TREES = (
     {
-        b"directory/file1.exe": {b"length": 1, b"pieces root": b"sup"},
-        b"directory/subdir/file2.exe": {b"length": 2, b"pieces root": b"sup"},
-        b"file3.exe": {b"length": 3, b"pieces root": b"sup"},
+        "directory/file1.exe": {"length": 1, "pieces root": "sup"},
+        "directory/subdir/file2.exe": {"length": 2, "pieces root": "sup"},
+        "file3.exe": {"length": 3, "pieces root": "sup"},
     },
 )
 

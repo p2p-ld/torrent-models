@@ -1,3 +1,4 @@
+import multiprocessing as mp
 from math import ceil
 from pathlib import Path
 from typing import Any, Self, cast
@@ -11,8 +12,10 @@ from pydantic import (
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.const import EXCLUDE_FILES
+from torrent_models.hashing.hybrid import HybridHasher, add_padfiles
+from torrent_models.hashing.v1 import hash_pieces
+from torrent_models.hashing.v2 import FileTree, PieceLayers
 from torrent_models.info import (
-    FileItem,
     InfoDictHybrid,
     InfoDictHybridCreate,
     InfoDictV1,
@@ -23,20 +26,15 @@ from torrent_models.info import (
 from torrent_models.types import (
     ByteStr,
     ByteUrl,
+    FileItem,
+    FileTreeItem,
+    PieceLayersType,
     TorrentVersion,
     UnixDatetime,
     V1PieceLength,
     V2PieceLength,
     str_keys,
 )
-from torrent_models.v1 import hash_pieces
-from torrent_models.v2 import FileTree, PieceLayers
-
-PieceLayersType = dict[bytes, bytes]
-
-
-# class FileTreeType(RootModel):
-#     root: dict[FileName,dict[L[''], FileTreeItem]]
 
 
 class TorrentBase(ConfiguredBase):
@@ -52,7 +50,7 @@ class TorrentBase(ConfiguredBase):
     )
 
     @classmethod
-    def read(cls, path: Path | str, decode_str: bool = False) -> Self:
+    def read(cls, path: Path | str) -> Self:
         with open(path, "rb") as tfile:
             tdata = tfile.read()
         tdict = bencode_rs.bdecode(tdata)
@@ -78,6 +76,48 @@ class TorrentBase(ConfiguredBase):
             return TorrentVersion.v2
         else:
             return TorrentVersion.hybrid
+
+    @property
+    def v1_infohash(self) -> bytes | None:
+        return self.info.v1_infohash
+
+    @property
+    def v2_infohash(self) -> bytes | None:
+        return self.info.v2_infohash
+
+    @property
+    def n_files(self) -> int:
+        """
+        Total number of files described by the torrent, excluding padfiles
+        """
+
+        if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
+            if self.info.files is None:
+                return 1
+            return len([f for f in self.info.files if f.attr not in (b"p", "p")])
+        else:
+            tree = FileTree.flatten_tree(self.info.file_tree)
+            return len(tree)
+
+    @property
+    def total_size(self) -> int:
+        """
+        Total size of the torrent, excluding padfiles, in bytes
+        """
+        if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
+            if self.info.files is None:
+                return self.info.length
+            return sum([f.length for f in self.info.files if f.attr not in (b"p", "p")])
+        else:
+            tree = FileTree.flatten_tree(self.info.file_tree)
+            return sum([t["length"] for t in tree.values()])
+
+    @property
+    def flat_files(self) -> dict[str, FileTreeItem] | None:
+        """A flattened version of the v2 file tree"""
+        if self.torrent_version == TorrentVersion.v1:
+            return None
+        return FileTree.flatten_tree(self.info.file_tree)
 
 
 class Torrent(TorrentBase):
@@ -205,6 +245,9 @@ class TorrentCreate(TorrentBase):
         if isinstance(version, str):
             version = TorrentVersion.__members__[version]
 
+        if n_processes is None:
+            n_processes = mp.cpu_count()
+
         if version == TorrentVersion.v1:
             return self._generate_v1(n_processes, progress)
         elif version == TorrentVersion.v2:
@@ -221,44 +264,32 @@ class TorrentCreate(TorrentBase):
         dumped = self.model_dump(
             exclude_none=True,
             exclude={
-                "files",
-                "paths",
-                "path_root",
-                "trackers",
-                "file_tree",
-                "meta_version",
-                "piece_layers",
-                "piece_length",
+                "paths": True,
+                "path_root": True,
+                "trackers": True,
+                "piece_length": True,
+                "info": {"meta_version", "files", "file_tree", "piece_length"},
+                "piece_layers": True,
             },
             by_alias=False,
         )
 
-        dumped["info"]["piece_length"] = (
-            self.piece_length if self.piece_length else self.info.piece_length
-        )
+        dumped["info"]["piece_length"] = self._get_piece_length()
         dumped.update(self._gather_trackers())
         return dumped
 
     def _generate_v1(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
         dumped = self._generate_common()
-        files = (
-            self.paths
-            if self.paths
-            else [Path(*f.path) for f in cast(list[FileItem], self.info.files)]
-        )
 
-        files = clean_files(files, relative_to=self.path_root)
+        file_items, files = self._get_v1_paths(v1_only=True)
 
         if not self.info.files:
-            dumped["info"]["files"] = [
-                FileItem(path=list(f.parts), length=(self.path_root / f).stat().st_size)
-                for f in files
-            ]
+            dumped["info"]["files"] = file_items
 
         if "pieces" not in dumped["info"]:
             dumped["info"]["pieces"] = hash_pieces(
                 files,
-                piece_length=self.info.piece_length,
+                piece_length=dumped["info"]["piece_length"],
                 path_root=self.path_root,
                 sort=False,
                 progress=progress,
@@ -279,9 +310,13 @@ class TorrentCreate(TorrentBase):
             paths = [path for path in FileTree.flatten_tree(self.info.file_tree)]
 
         if "piece_layers" not in dumped or "file_tree" not in dumped["info"]:
-            piece_layers = PieceLayers(
-                paths=paths, piece_length=dumped["info"]["piece_length"], path_root=self.path_root
-            ).make(n_processes=n_processes, progress=progress)
+            piece_layers = PieceLayers.from_paths(
+                paths=paths,
+                piece_length=dumped["info"]["piece_length"],
+                path_root=self.path_root,
+                n_processes=n_processes,
+                progress=progress,
+            )
             dumped["piece_layers"] = piece_layers.piece_layers
             dumped["info"]["file_tree"] = piece_layers.file_tree.tree
 
@@ -290,7 +325,79 @@ class TorrentCreate(TorrentBase):
         return Torrent(info=info, **dumped)
 
     def _generate_hybrid(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
-        raise NotImplementedError()
+        dumped = self._generate_common()
+
+        # Gather paths
+        if self.paths:
+            paths = clean_files(self.paths, relative_to=self.path_root)
+            v1_items, _ = self._get_v1_paths(paths)
+        elif (self.info.files or self.info.length) and self.info.file_tree:
+            # check for inconsistent paths in v1 and v2 if both are present
+            v1_items, v1_paths = self._get_v1_paths()
+            v2_paths = [Path(path) for path in FileTree.flatten_tree(self.info.file_tree)]
+            if not len(v1_paths) == len(v2_paths) and not all(
+                [v1p == v2p for v1p, v2p in zip(v1_paths, v2_paths)]
+            ):
+                raise ValueError(
+                    "Both v1 files and v2 file tree present, but have inconsistent paths!"
+                )
+            paths = v2_paths
+        elif self.info.files or self.info.length:
+            # v1 files
+            v1_items, paths = self._get_v1_paths()
+        elif self.info.file_tree:
+            # v2 file tree
+            paths = [Path(path) for path in FileTree.flatten_tree(self.info.file_tree)]
+            v1_items, _ = self._get_v1_paths(paths)
+        else:
+            raise ValueError(
+                ".paths, v1 paths, and v2 paths were not specified! " "nothing in this torrent!"
+            )
+
+        # add padding to the v1 files
+        v1_items = add_padfiles(v1_items, dumped["info"]["piece_length"])
+
+        hasher = HybridHasher(
+            paths=paths,
+            path_base=self.path_root,
+            piece_length=self.piece_length,
+            n_processes=n_processes,
+            progress=progress,
+        )
+        piece_layers, v1_pieces = hasher.process()
+        dumped["piece layers"] = piece_layers.piece_layers
+        dumped["info"]["file tree"] = piece_layers.file_tree.tree
+        dumped["info"]["pieces"] = v1_pieces
+        if len(v1_items) == 1:
+            dumped["info"]["name"] = v1_items[0].path
+            dumped["info"]["length"] = v1_items[0].length
+        else:
+            dumped["info"]["files"] = v1_items
+
+        info = InfoDictHybrid(**dumped["info"])
+        del dumped["info"]
+        return Torrent(info=info, **dumped)
+
+    def _get_v1_paths(
+        self, paths: list[Path] | None = None, v1_only: bool = False
+    ) -> tuple[list[FileItem], list[Path]]:
+        if paths:
+            files = paths
+        elif self.paths:
+            files = self.paths
+        elif self.info.files:
+            files = [Path(*f.path) for f in cast(list[FileItem], self.info.files)]
+        elif self.info.length:
+            files = [Path(self.info.name)]
+        else:
+            raise ValueError("paths not provided, and info.files and info.length are unset!")
+
+        files = clean_files(files, relative_to=self.path_root, v1=v1_only)
+
+        items = [
+            FileItem(path=list(f.parts), length=(self.path_root / f).stat().st_size) for f in files
+        ]
+        return items, files
 
     def _gather_trackers(
         self,
@@ -314,6 +421,12 @@ class TorrentCreate(TorrentBase):
         else:
             return {}
 
+    def _get_piece_length(self) -> int:
+        piece_length = self.piece_length if self.piece_length else self.info.piece_length
+        if piece_length is None:
+            raise ValueError("No piece length provided!")
+        return piece_length
+
 
 def list_files(path: Path | str) -> list[Path]:
     """
@@ -328,7 +441,15 @@ def list_files(path: Path | str) -> list[Path]:
     return clean_files(paths, path)
 
 
-def clean_files(paths: list[Path], relative_to: Path) -> list[Path]:
+def sort_v1(paths: list[Path]) -> list[Path]:
+    """
+    v1 sorts top-level files first, then within that division alphabetically
+    https://github.com/alanmcgovern/monotorrent/issues/563
+    """
+    return sorted(paths, key=lambda path: (len(path.parts) != 1, str(path).lower()))
+
+
+def clean_files(paths: list[Path], relative_to: Path, v1: bool = False) -> list[Path]:
     """
     Remove system files, and make paths relative to some directory root
     """
@@ -343,6 +464,5 @@ def clean_files(paths: list[Path], relative_to: Path) -> list[Path]:
             rel_f = f
         if abs_f.is_file() and f.name not in EXCLUDE_FILES:
             cleaned.append(rel_f)
-
-    cleaned = sorted(cleaned)
+    cleaned = sort_v1(cleaned) if v1 else sorted(cleaned, key=lambda f: f.as_posix())
     return cleaned

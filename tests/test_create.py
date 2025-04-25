@@ -1,7 +1,7 @@
 import bencode_rs
-import pytest
 
 from torrent_models.torrent import TorrentCreate
+from torrent_models.types import TorrentVersion
 
 from .conftest import DATA_DIR
 
@@ -10,8 +10,6 @@ def test_create_basic(version):
     """
     Test that we can recreate the basic torrents exactly
     """
-    if version == "hybrid":
-        pytest.skip()
 
     paths = list((DATA_DIR / "basic").rglob("*"))
     create = TorrentCreate(
@@ -26,6 +24,8 @@ def test_create_basic(version):
         info={"source": "source"},
     )
     generated = create.generate(version=version)
+    # pdb.set_trace()
+    assert generated.torrent_version == TorrentVersion.__members__[version]
     bencoded = generated.bencode()
     with open(DATA_DIR / f"qbt_basic_{version}.torrent", "rb") as f:
         expected = f.read()
