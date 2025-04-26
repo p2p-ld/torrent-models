@@ -1,5 +1,4 @@
 import hashlib
-from functools import cached_property
 from math import ceil
 from typing import Annotated, Self
 
@@ -26,6 +25,8 @@ class InfoDictRoot(ConfiguredBase):
     name: ByteStr
     source: ByteStr | None = None
 
+    _total_length: int | None = None
+
     @property
     def v1_infohash(self) -> bytes | None:
         return None
@@ -44,20 +45,22 @@ class InfoDictV1Base(InfoDictRoot):
     @property
     def v1_infohash(self) -> bytes:
         """SHA-1 hash of the infodict"""
-        dumped = self.model_dump(exclude_none=True)
+        dumped = self.model_dump(exclude_none=True, by_alias=True)
         bencoded = bencode_rs.bencode(dumped)
         return hashlib.sha1(bencoded).digest()
 
-    @cached_property
+    @property
     def total_length(self) -> int:
         """Total length of all files, in bytes"""
-        total = 0
-        if not self.files:
-            return total
+        if self._total_length is None:
+            total = 0
+            if not self.files:
+                return total
 
-        for f in self.files:
-            total += f.length
-        return total
+            for f in self.files:
+                total += f.length
+            self._total_length = total
+        return self._total_length
 
     @model_validator(mode="after")
     def disallowed_fields(self) -> Self:
@@ -122,7 +125,7 @@ class InfoDictV2Base(InfoDictRoot):
     @property
     def v2_infohash(self) -> bytes:
         """SHA-256 hash of the infodict"""
-        dumped = self.model_dump(exclude_none=True)
+        dumped = self.model_dump(exclude_none=True, by_alias=True)
         bencoded = bencode_rs.bencode(dumped)
         return hashlib.sha256(bencoded).digest()
 

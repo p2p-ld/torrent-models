@@ -59,6 +59,9 @@ dev = [
     "mypy>=1.15.0",
     "types-tqdm>=4.67.0.20250417",
 ]
+libtorrent = [
+    "libtorrent>=2.0.11",
+]
 
 
 
@@ -160,7 +163,7 @@ include = "(?:tests|torrent_models)/.*\\.py$"
 line-length = 100
 
 [tool.mypy]
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/stubs"
 packages = ["torrent_models"]
 warn_redundant_casts = true
 warn_unused_ignores = true

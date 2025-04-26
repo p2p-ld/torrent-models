@@ -48,6 +48,7 @@ class TorrentBase(ConfiguredBase):
     url_list: list[ByteUrl] | ByteUrl | None = Field(
         None, alias="url-list", description="List of webseeds"
     )
+    webseeds: list[ByteUrl] | None = Field(None, alias="url-list")
 
     @classmethod
     def read(cls, path: Path | str) -> Self:
@@ -119,6 +120,21 @@ class TorrentBase(ConfiguredBase):
             return None
         return FileTree.flatten_tree(self.info.file_tree)
 
+    def model_dump_torrent(self, mode: L["str", "binary"] = "binary", **kwargs: Any) -> dict:
+        """
+        Dump the model into a dictionary that can be bencoded into a torrent
+
+        Args:
+            mode ("str", "binary"): ``str`` returns as a 'python' version of the torrent,
+                with string keys and serializers applied.
+                ``binary`` roundtrips to and from bencoding.
+            kwargs: forwarded to :meth:`pydantic.BaseModel.model_dump`
+        """
+        dumped = self.model_dump(exclude_none=True, by_alias=True, **kwargs)
+        if mode == "binary":
+            dumped = bencode_rs.bdecode(bencode_rs.bencode(dumped))
+        return dumped
+
 
 class Torrent(TorrentBase):
     """
@@ -172,6 +188,19 @@ class TorrentCreate(TorrentBase):
     one can just pass a list of files to ``files``
     """
 
+    _EXCLUDE = {
+        "paths": True,
+        "path_root": True,
+        "trackers": True,
+        "piece_length": True,
+        "info": {"meta_version", "files", "file_tree", "piece_length"},
+        "piece_layers": True,
+    }
+    """
+    Exclude from model dumps when creating internal model dumps when generating.
+    ie. because they are transformed by creation
+    """
+
     # make parent types optional
     announce: ByteUrl | None = None  # type: ignore
 
@@ -197,6 +226,9 @@ class TorrentCreate(TorrentBase):
     )
     piece_length: V1PieceLength | V2PieceLength | None = Field(
         None, description="Convenience method for passing piece length"
+    )
+    similar: list[bytes] | None = Field(
+        None, description="Infohashes of other torrents that might contain overlapping files"
     )
 
     @model_validator(mode="after")
@@ -257,25 +289,34 @@ class TorrentCreate(TorrentBase):
         else:
             raise ValueError(f"Unknown torrent version: {version}")
 
+    def generate_libtorrent(
+        self,
+        version: TorrentVersion | str,
+        output: Path | None = None,
+        bencode: bool = False,
+        progress: bool = False,
+    ) -> dict | bytes:
+        from torrent_models.libtorrent import create_from_model
+
+        return create_from_model(
+            self, version=version, progress=progress, output=output, bencode=bencode
+        )
+
     def _generate_common(self) -> dict:
         # dump just the fields we want to have in the final torrent,
         # excluding top-level convenience fields (set in the generate methods),
         # and hash values which are created during generation
         dumped = self.model_dump(
             exclude_none=True,
-            exclude={
-                "paths": True,
-                "path_root": True,
-                "trackers": True,
-                "piece_length": True,
-                "info": {"meta_version", "files", "file_tree", "piece_length"},
-                "piece_layers": True,
-            },
+            exclude=self._EXCLUDE,
             by_alias=False,
         )
 
         dumped["info"]["piece_length"] = self._get_piece_length()
-        dumped.update(self._gather_trackers())
+        if "similar" in dumped:
+            dumped["info"]["similar"] = dumped["similar"]
+            del dumped["similar"]
+        dumped.update(self.get_trackers())
         return dumped
 
     def _generate_v1(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
@@ -378,6 +419,35 @@ class TorrentCreate(TorrentBase):
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
+    def get_paths(self, clean: bool = True, v1_order: bool = False) -> list[Path]:
+        """
+        Get paths specified in one of potentially several ways
+
+        In order (first match is returned):
+        - paths set in top level `paths` field
+        - v2 file tree, if present
+        - v1 `files`, if present
+        - v1 `name`, otherwise
+
+        Args:
+            clean (bool): clean and sort the files
+            v1_order (bool): sort files in v1 order -
+                first top-level files, then files in directories
+                in case-sensitive alphanumeric order within those categories.
+        """
+        if self.paths:
+            paths = self.paths.copy()
+        elif self.info.file_tree:
+            tree = self.flat_files
+            paths = [Path(t) for t in tree]
+        else:
+            _, paths = self._get_v1_paths()
+            return paths
+
+        if clean:
+            paths = clean_files(paths, relative_to=self.path_root, v1=v1_order)
+        return paths
+
     def _get_v1_paths(
         self, paths: list[Path] | None = None, v1_only: bool = False
     ) -> tuple[list[FileItem], list[Path]]:
@@ -399,7 +469,7 @@ class TorrentCreate(TorrentBase):
         ]
         return items, files
 
-    def _gather_trackers(
+    def get_trackers(
         self,
     ) -> dict[L["announce"] | L["announce-list"], ByteUrl | list[list[ByteUrl]]]:
         # FIXME: hideous
@@ -419,7 +489,12 @@ class TorrentCreate(TorrentBase):
                         "announce-list": [[t] for t in self.trackers],
                     }
         else:
-            return {}
+            trackers: dict[L["announce"] | L["announce-list"], ByteUrl | list[list[ByteUrl]]] = {}
+            if self.announce:
+                trackers["announce"] = str(self.announce)
+            if self.announce_list:
+                trackers["announce-list"] = self.announce_list
+            return trackers
 
     def _get_piece_length(self) -> int:
         piece_length = self.piece_length if self.piece_length else self.info.piece_length

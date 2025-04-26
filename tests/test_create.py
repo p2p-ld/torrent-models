@@ -37,3 +37,13 @@ def test_create_basic(version):
 
     # then test for serialized identity
     assert bencoded == expected
+
+
+def test_create_libtorrent(libtorrent_pair):
+    """
+    Creating a torrent with libtorrent is the same as creating it with torrent_models
+    :param libtorrent_pair:
+    :return:
+    """
+    lt, generated = libtorrent_pair
+    assert lt == generated.model_dump_torrent()

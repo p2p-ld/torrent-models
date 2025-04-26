@@ -1,7 +1,7 @@
 import sys
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, NotRequired, TypeAlias, Union, cast
+from typing import Annotated, NotRequired, TypeAlias, TypeVar, Union, cast
 from typing import Literal as L
 
 from pydantic import (
@@ -41,19 +41,6 @@ UnixDatetime = Annotated[
     datetime, BeforeValidator(_timestamp_to_datetime), PlainSerializer(_datetime_to_timestamp)
 ]
 
-
-# class ByteStrProtocol(EncoderProtocol):
-#     @classmethod
-#     def decode(cls, data: bytes) -> bytes:
-#         return data
-#
-#     @classmethod
-#     def encode(cls, data: bytes) -> bytes:
-#         return data
-#
-#     @classmethod
-#     def get_json_format(cls) -> str:
-#         return 'byte-str'
 
 EXCLUDE_STRINGIFY = ("piece_layers", "piece layers", "path")
 
@@ -214,6 +201,27 @@ FileTreeItem = TypedDict(
 FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
     "FileTreeType", dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]]  # type: ignore
 )
+
+
+_Inner = TypeVar("_Inner")
+
+
+def _to_list(val: _Inner) -> list[_Inner]:
+    if val and not isinstance(val, list):
+        return [val]
+    return val
+
+
+def _from_list(val: list[_Inner] | None) -> list[_Inner] | _Inner | None:
+    if not val:
+        return None
+    elif len(val) == 1:
+        return val[0]
+    else:
+        return val
+
+
+ListOrValue = Annotated[list[_Inner], BeforeValidator(_to_list), PlainSerializer(_from_list)]
 
 
 class FileItem(BaseModel):
