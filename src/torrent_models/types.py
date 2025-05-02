@@ -11,6 +11,8 @@ from pydantic import (
     BeforeValidator,
     PlainSerializer,
     SerializationInfo,
+    SerializerFunctionWrapHandler,
+    WrapSerializer,
 )
 
 if sys.version_info < (3, 12):
@@ -212,16 +214,19 @@ def _to_list(val: _Inner) -> list[_Inner]:
     return val
 
 
-def _from_list(val: list[_Inner] | None) -> list[_Inner] | _Inner | None:
-    if not val:
+def _from_list(
+    val: list[_Inner] | None, handler: SerializerFunctionWrapHandler
+) -> list[_Inner] | _Inner | None:
+    partial = handler(val)
+    if not partial:
         return None
-    elif len(val) == 1:
-        return val[0]
+    elif len(partial) == 1:
+        return partial[0]
     else:
-        return val
+        return partial
 
 
-ListOrValue = Annotated[list[_Inner], BeforeValidator(_to_list), PlainSerializer(_from_list)]
+ListOrValue = Annotated[list[_Inner], BeforeValidator(_to_list), WrapSerializer(_from_list)]
 
 
 class FileItem(BaseModel):
