@@ -234,8 +234,12 @@ class TorrentCreate(TorrentBase):
     @model_validator(mode="after")
     def files_xor_info_files(self) -> Self:
         """Can only specify convenience file field or fill the file field in the infodict"""
-        assert bool(self.paths) != (
-            self.info.files is not None or self.info.length is not None
+        files_in_info = self.info.files is not None or self.info.length is not None
+        assert (
+            bool(self.paths) or files_in_info
+        ), "Must specify files either in `paths` or in `info`"
+        assert (
+            bool(self.paths) != files_in_info
         ), "Can only pass the top-level files field OR the files list/length in the infodict"
         return self
 

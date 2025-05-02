@@ -85,9 +85,9 @@ def create_from_model(
         for webseed in torrent.webseeds:
             created.add_url_seed(str(webseed))
 
-    # if torrent.similar:
-    #     for s in torrent.similar:
-    #         created.add_similar_torrent(libtorrent.sha1_hash(s))
+    if torrent.similar:
+        for s in torrent.similar:
+            created.add_similar_torrent(libtorrent.sha1_hash(s))
 
     if torrent.comment:
         created.set_comment(torrent.comment)

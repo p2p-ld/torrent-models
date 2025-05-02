@@ -40,17 +40,20 @@ cli = [
     "click>=8.1.8",
     "humanize>=4.12.2",
 ]
-tests = [
+libtorrent = [
+    "libtorrent>=2.0.11",
+]
+mypy = [
     "torrent-models[cli]",
+    "types-tqdm>=4.67.0.20250417",
+]
+tests = [
+    "torrent-models[cli,libtorrent]",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
     "pytest-codspeed>=3.2.0",
     "torf>=4.3.0",
     "pytest-profiling>=1.8.1",
-]
-mypy = [
-    "torrent-models[cli]",
-    "types-tqdm>=4.67.0.20250417",
 ]
 dev = [
     "torrent-models[tests,mypy]",
@@ -59,10 +62,6 @@ dev = [
     "mypy>=1.15.0",
     "types-tqdm>=4.67.0.20250417",
 ]
-libtorrent = [
-    "libtorrent>=2.0.11",
-]
-
 
 
 [project.scripts]
@@ -179,4 +178,8 @@ addopts = [
     "--cov=torrent-models",
     "--cov-append",
 ]
-markers = []
+
+[tool.pytest.ini_options]
+markers = """
+  libtorrent: tests that compare libtorrent-created torrents with torrent-models torrents
+"""

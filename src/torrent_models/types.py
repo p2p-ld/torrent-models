@@ -128,7 +128,7 @@ FilePart: TypeAlias = ByteStr
 
 
 def _divisible_by_16kib(size: int) -> int:
-    assert size > (16 * (2**10)), "Size must be at least 16 KiB"
+    assert size >= (16 * (2**10)), "Size must be at least 16 KiB"
     assert size % (16 * (2**10)) == 0, "Size must be divisible by 16 KiB"
     return size
 

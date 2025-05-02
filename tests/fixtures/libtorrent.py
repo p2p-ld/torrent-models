@@ -1,6 +1,7 @@
 import pytest
 
-from torrent_models import Torrent, testing
+from torrent_models import testing
+from torrent_models.torrent import Torrent
 
 __all__ = [
     "libtorrent_pair",
