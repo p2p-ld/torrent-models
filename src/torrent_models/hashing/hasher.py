@@ -1,13 +1,14 @@
 import multiprocessing as mp
 from abc import abstractmethod
 from collections import deque
+from collections.abc import AsyncGenerator
 from functools import cached_property
 from itertools import count
 from math import ceil
 from multiprocessing.pool import ApplyResult, AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import AsyncGenerator, Generic, TypeVar, overload
+from typing import Generic, TypeVar, overload
 from typing import Literal as L
 
 from anyio import open_file, run
@@ -43,7 +44,7 @@ class Hash(BaseModel):
     """The index of the block for ordering, may be within-file or across-files"""
 
 
-async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator[Chunk]:
+async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator[Chunk, None]:
     """Iterate 16KiB blocks"""
     counter = count()
     last_size = read_size
