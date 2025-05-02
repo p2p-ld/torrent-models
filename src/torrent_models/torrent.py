@@ -28,6 +28,7 @@ from torrent_models.types import (
     ByteUrl,
     FileItem,
     FileTreeItem,
+    ListOrValue,
     PieceLayersType,
     TorrentVersion,
     UnixDatetime,
@@ -45,10 +46,7 @@ class TorrentBase(ConfiguredBase):
     creation_date: UnixDatetime | None = Field(default=None, alias="creation date")
     info: InfoDictV1 | InfoDictV2 | InfoDictHybrid = Field(..., union_mode="left_to_right")
     piece_layers: PieceLayersType | None = Field(None, alias="piece layers")
-    url_list: list[ByteUrl] | ByteUrl | None = Field(
-        None, alias="url-list", description="List of webseeds"
-    )
-    webseeds: list[ByteUrl] | None = Field(None, alias="url-list")
+    webseeds: ListOrValue[ByteUrl] | None = Field(None, alias="url-list")
 
     @classmethod
     def read(cls, path: Path | str) -> Self:
