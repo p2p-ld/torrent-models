@@ -8,6 +8,7 @@ import bencode_rs
 from pydantic import AnyUrl, Field, model_validator
 
 from torrent_models.base import ConfiguredBase
+from torrent_models.compat import get_size
 from torrent_models.const import DEFAULT_TORRENT_CREATOR, EXCLUDE_FILES
 from torrent_models.hashing.hybrid import HybridHasher, add_padfiles
 from torrent_models.hashing.v1 import hash_pieces
@@ -479,9 +480,7 @@ class TorrentCreate(TorrentBase):
 
         files = clean_files(files, relative_to=self.path_root, v1=v1_only)
 
-        items = [
-            FileItem(path=list(f.parts), length=(self.path_root / f).stat().st_size) for f in files
-        ]
+        items = [FileItem(path=list(f.parts), length=get_size(self.path_root / f)) for f in files]
         return items, files
 
     def get_trackers(

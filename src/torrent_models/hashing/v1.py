@@ -1,5 +1,6 @@
 import hashlib
 import multiprocessing
+import os
 from collections import deque
 from itertools import count
 from math import ceil, floor
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING, Generator, cast
 
 from tqdm import tqdm
 
+from torrent_models.compat import get_size
 from torrent_models.types import Pieces, V1PieceLength
 
 if TYPE_CHECKING:
@@ -59,7 +61,7 @@ def hash_pieces(
     read_pbar = None
     hash_pbar = None
     if progress:
-        total_pieces = ceil(sum(file.stat().st_size for file in paths) / piece_length)
+        total_pieces = ceil(sum(get_size(file) for file in paths) / piece_length)
         read_pbar = tqdm(total=total_pieces, desc="Reading pieces", position=0)
         hash_pbar = tqdm(total=total_pieces, desc="Hashing pieces", position=1)
 
@@ -144,8 +146,10 @@ def piece_iter(
     idx = count()
 
     for file in files:
-        total_size = file.stat().st_size
         with open(file, "rb") as f:
+            pos = f.tell()
+            total_size = f.seek(0, os.SEEK_END)
+            f.seek(pos)
             while f.tell() < total_size:
                 if piece is not None:
                     piece += f.read(piece_length - len(piece))

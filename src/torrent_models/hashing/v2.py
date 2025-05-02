@@ -19,6 +19,7 @@ from anyio import run
 from pydantic import BaseModel
 from tqdm.asyncio import tqdm
 
+from torrent_models.compat import get_size
 from torrent_models.hashing.hasher import BLOCK_SIZE, Hash, iter_blocks
 from torrent_models.junkdrawer import DummyPbar, PbarLike
 from torrent_models.types import FileTreeItem, FileTreeType
@@ -264,7 +265,7 @@ class MerkleTree:
 
     @cached_property
     def file_size(self) -> int:
-        return self.path.stat().st_size
+        return get_size(self.path)
 
     @cached_property
     def n_blocks(self) -> int:
@@ -445,8 +446,8 @@ class FileTree(BaseModel):
                     )
                 rel_path = tree.path.relative_to(base_path)
             tree.root_hash = cast(bytes, tree.root_hash)
-            flat[str(rel_path)] = FileTreeItem(
-                **{"pieces root": tree.root_hash, "length": tree.path.stat().st_size}
+            flat[rel_path.as_posix()] = FileTreeItem(
+                **{"pieces root": tree.root_hash, "length": get_size(tree.path)}
             )
         return cls.from_flat(flat)
 
@@ -570,7 +571,7 @@ class PieceLayers:
             )
             tree.root_hash = cast(bytes, tree.root_hash)
             file_tree[str(path)] = FileTreeItem(
-                **{"pieces root": tree.root_hash, "length": abs_path.stat().st_size}
+                **{"pieces root": tree.root_hash, "length": get_size(abs_path)}
             )
             if tree.piece_hashes:
                 piece_layers[tree.root_hash] = b"".join(tree.piece_hashes)

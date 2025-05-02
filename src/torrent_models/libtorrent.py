@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, cast
 import bencode_rs
 from tqdm import tqdm
 
+from torrent_models.compat import get_size
 from torrent_models.types import TorrentVersion
 
 if TYPE_CHECKING:
@@ -61,7 +62,7 @@ def create_from_model(
 
     fs = libtorrent.file_storage()
     for path in torrent.get_paths():
-        fs.add_file(str(path), (torrent.path_root / path).stat().st_size)
+        fs.add_file(str(path), get_size(torrent.path_root / path))
 
     flags = 0
     if version == TorrentVersion.v1:

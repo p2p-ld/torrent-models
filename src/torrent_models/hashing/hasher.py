@@ -14,6 +14,7 @@ from anyio import open_file, run
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
+from torrent_models.compat import get_size
 from torrent_models.junkdrawer import DummyPbar, PbarLike
 from torrent_models.types import V1PieceLength, V2PieceLength
 
@@ -98,7 +99,7 @@ class HasherBase(BaseModel, Generic[T]):
         """Total read_size chunks in all files"""
         total_chunks = 0
         for path in self.paths:
-            total_chunks += ceil((self.path_base / path).stat().st_size / self.read_size)
+            total_chunks += ceil(get_size(self.path_base / path) / self.read_size)
         return total_chunks
 
     @cached_property

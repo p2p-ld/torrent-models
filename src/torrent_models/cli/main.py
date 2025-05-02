@@ -11,6 +11,7 @@ from rich.console import Group
 from rich.pretty import Pretty
 from rich.table import Table
 
+from torrent_models.compat import get_size
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
 from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
 from torrent_models.torrent import Torrent, TorrentCreate, list_files
@@ -122,7 +123,7 @@ def make(
         with open(output, "wb") as f:
             f.write(bencoded)
 
-        torrent_size = Path(output).stat().st_size
+        torrent_size = get_size(Path(output))
 
         end_time = time()
         duration = end_time - start_time
@@ -171,7 +172,7 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
     summary = {
         "# Files": humanize.number.intcomma(t.n_files),
         "Total Size": humanize.naturalsize(t.total_size, binary=True),
-        "Torrent Size": humanize.naturalsize(torrent.stat().st_size, binary=True),
+        "Torrent Size": humanize.naturalsize(get_size(torrent), binary=True),
         "Piece Size": humanize.naturalsize(t.info.piece_length, binary=True),
     }
     v1_infohash = t.v1_infohash
