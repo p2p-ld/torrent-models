@@ -18,6 +18,7 @@ from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
+from typing import cast
 
 from pydantic import PrivateAttr
 
@@ -106,7 +107,7 @@ class HybridHasher(HasherBase[tuple[PieceLayers, list[bytes]]]):
         piece = b"".join([c.chunk for c in self._v1_chunks])
 
         # append padding
-
+        self._last_path = cast(Path, self._last_path)
         piece = b"".join([piece, bytes(self.piece_length - len(piece))])
         chunk = Chunk.model_construct(idx=next(self._v1_counter), path=self._last_path, chunk=piece)
         return pool.apply_async(self._hash_v1, args=(chunk,))

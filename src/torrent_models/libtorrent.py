@@ -12,7 +12,7 @@ not the module.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import bencode_rs
 from tqdm import tqdm
@@ -69,10 +69,12 @@ def create_from_model(
     elif version == TorrentVersion.v2:
         flags = libtorrent.create_torrent.v2_only
 
+    torrent.piece_length = cast(int, torrent.piece_length)
     created = libtorrent.create_torrent(fs, piece_size=torrent.piece_length, flags=flags)
 
     trackers = torrent.get_trackers()
     flat_trackers = [trackers.get("announce", None)]
+
     for tier in trackers.get("announce-list", []):
         flat_trackers.extend(tier)
 
@@ -92,7 +94,8 @@ def create_from_model(
     if torrent.comment:
         created.set_comment(torrent.comment)
 
-    created.set_creator(torrent.created_by)
+    if torrent.created_by is not None:
+        created.set_creator(torrent.created_by)
 
     _pbar = None
     if progress:

@@ -166,11 +166,10 @@ def _serialize_pieces(
 ) -> bytes | list[bytes] | list[str]:
     """Join piece lists to a big long byte string unless we're pretty printing"""
     if info.context and info.context.get("mode") == "print":
-        if info.context.get("hash_repr") != "bytes":
-            pieces = [p.hex() for p in pieces]
+        ret = [p.hex() for p in pieces]
         if info.context.get("hash_truncate"):
-            pieces = [p[0:8] for p in pieces]
-        return pieces
+            ret = [p[0:8] for p in ret]
+        return ret
     return b"".join(pieces)
 
 
@@ -181,13 +180,15 @@ Pieces = Annotated[
 
 def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | list[str]:
     if info.context and info.context.get("mode") == "print":
-        if info.context.get("hash_repr") != "bytes":
-            value = value.hex()
+        ret: str = value.hex()
+
         if info.context.get("hash_truncate"):
-            value = value[0:8]
+            ret = ret[0:8]
         # split layers
-        if len(value) > 64:
-            value = [value[i : i + 64] for i in range(0, len(value), 64)]
+        if len(ret) > 64:
+            return [ret[i : i + 64] for i in range(0, len(ret), 64)]
+        else:
+            return ret
 
     return value
 
@@ -208,10 +209,12 @@ FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
 _Inner = TypeVar("_Inner")
 
 
-def _to_list(val: _Inner) -> list[_Inner]:
+def _to_list(val: _Inner | list[_Inner]) -> list[_Inner]:
     if val and not isinstance(val, list):
         return [val]
-    return val
+    else:
+        val = cast(list[_Inner], val)
+        return val
 
 
 def _from_list(
@@ -233,3 +236,10 @@ class FileItem(BaseModel):
     length: int
     path: list[FilePart]
     attr: L[b"p"] | None = None
+
+
+TrackerFields = TypedDict(
+    "TrackerFields",
+    {"announce": AnyUrl | str, "announce-list": NotRequired[list[list[AnyUrl]] | list[list[str]]]},
+)
+"""The `announce` and `announce-list`"""

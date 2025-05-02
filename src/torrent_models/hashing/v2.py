@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import cached_property
 from math import ceil
+from multiprocessing.pool import ApplyResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
 from typing import Union, cast, overload
@@ -19,7 +20,7 @@ from pydantic import BaseModel
 from tqdm.asyncio import tqdm
 
 from torrent_models.hashing.hasher import BLOCK_SIZE, Hash, iter_blocks
-from torrent_models.junkdrawer import DummyPbar
+from torrent_models.junkdrawer import DummyPbar, PbarLike
 from torrent_models.types import FileTreeItem, FileTreeType
 
 
@@ -159,6 +160,8 @@ class MerkleTree:
             made_pool = True
             pool = mp.Pool(processes=self.n_processes)
 
+        read_pbar: PbarLike
+        hash_pbar: PbarLike
         if self.progress:
             read_pbar = tqdm(total=self.n_blocks + self.n_pad_blocks, desc="Reading", position=1)
             hash_pbar = tqdm(total=self.n_blocks + self.n_pad_blocks, desc="Hashing", position=2)
@@ -166,7 +169,7 @@ class MerkleTree:
             read_pbar = DummyPbar(total=self.n_blocks, desc="Reading")
             hash_pbar = DummyPbar(total=self.n_blocks, desc="Hashing")
 
-        results = deque()
+        results: deque[ApplyResult] = deque()
         leaf_hashes = []
 
         async for chunk in iter_blocks(self.path):
@@ -299,7 +302,7 @@ class MerkleTree:
 
     @classmethod
     @overload
-    def hash_block(cls, block: bytes, idx: None) -> bytes: ...
+    def hash_block(cls, block: bytes) -> bytes: ...
 
     @classmethod
     def hash_block(cls, block: bytes, idx: int | None = None) -> bytes | tuple[bytes, int]:
@@ -441,6 +444,7 @@ class FileTree(BaseModel):
                         f"Unsure what relative path should go in a torrent file."
                     )
                 rel_path = tree.path.relative_to(base_path)
+            tree.root_hash = cast(bytes, tree.root_hash)
             flat[str(rel_path)] = FileTreeItem(
                 **{"pieces root": tree.root_hash, "length": tree.path.stat().st_size}
             )
@@ -508,14 +512,20 @@ class PieceLayers:
     file_tree: FileTree
 
     @classmethod
-    def from_trees(cls, trees: list[MerkleTree], base_path: Path | None = None) -> "PieceLayers":
+    def from_trees(
+        cls, trees: list[MerkleTree] | MerkleTree, base_path: Path | None = None
+    ) -> "PieceLayers":
+        if not isinstance(trees, list):
+            trees = [trees]
         lengths = [t.piece_length for t in trees]
         assert all(
             [lengths[0] == ln for ln in lengths]
         ), "Differing piece lengths in supplied merkle trees!"
         piece_length = lengths[0]
         piece_layers = {
-            tree.root_hash: b"".join(tree.piece_hashes) for tree in trees if tree.piece_hashes
+            tree.root_hash: b"".join(tree.piece_hashes)
+            for tree in trees
+            if tree.piece_hashes and tree.root_hash is not None
         }
         file_tree = FileTree.from_trees(trees)
         return PieceLayers(
@@ -536,6 +546,8 @@ class PieceLayers:
         """
         if path_root is None:
             path_root = Path.cwd()
+
+        file_pbar: PbarLike
         if progress:
             file_pbar = tqdm(total=len(paths), desc="Hashing files...", position=0)
         else:
@@ -556,6 +568,7 @@ class PieceLayers:
             tree = MerkleTree.from_path(
                 path=abs_path, piece_length=piece_length, pool=pool, progress=progress
             )
+            tree.root_hash = cast(bytes, tree.root_hash)
             file_tree[str(path)] = FileTreeItem(
                 **{"pieces root": tree.root_hash, "length": abs_path.stat().st_size}
             )

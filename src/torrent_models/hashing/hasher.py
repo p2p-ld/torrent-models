@@ -4,17 +4,17 @@ from collections import deque
 from functools import cached_property
 from itertools import count
 from math import ceil
-from multiprocessing.pool import AsyncResult
+from multiprocessing.pool import ApplyResult, AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Generator, Generic, TypeVar
+from typing import AsyncGenerator, Generic, TypeVar, overload
 from typing import Literal as L
 
 from anyio import open_file, run
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from torrent_models.junkdrawer import DummyPbar
+from torrent_models.junkdrawer import DummyPbar, PbarLike
 from torrent_models.types import V1PieceLength, V2PieceLength
 
 BLOCK_SIZE = 16 * (2**10)
@@ -42,7 +42,7 @@ class Hash(BaseModel):
     """The index of the block for ordering, may be within-file or across-files"""
 
 
-async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> Generator[Chunk, None, None]:
+async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator[Chunk]:
     """Iterate 16KiB blocks"""
     counter = count()
     last_size = read_size
@@ -126,6 +126,9 @@ class HasherBase(BaseModel, Generic[T]):
         Hash all files
         """
         pool = mp.Pool(self.n_processes)
+        file_pbar: PbarLike
+        read_pbar: PbarLike
+        hash_pbar: PbarLike
         if self.progress:
             file_pbar = tqdm(total=len(self.paths), desc="File", position=0)
             read_pbar = tqdm(total=self.total_chunks, desc="Reading Chunk", position=1)
@@ -136,7 +139,7 @@ class HasherBase(BaseModel, Generic[T]):
             hash_pbar = DummyPbar()
 
         hashes = []
-        results = deque()
+        results: deque[ApplyResult] = deque()
         try:
             last_path = None
             for path in self.paths:
@@ -171,6 +174,15 @@ class HasherBase(BaseModel, Generic[T]):
             hash_pbar.close()
 
         return hashes
+
+    @overload
+    def _step_results(self, results: deque, block: L[True]) -> tuple[deque, Hash]: ...
+
+    @overload
+    def _step_results(self, results: deque, block: L[False]) -> tuple[deque, Hash | None]: ...
+
+    @overload
+    def _step_results(self, results: deque) -> tuple[deque, Hash | None]: ...
 
     def _step_results(self, results: deque, block: bool = False) -> tuple[deque, Hash | None]:
         """Step the outstanding results, yielding a single hash"""

@@ -8,7 +8,7 @@ from torrent_models import Torrent, TorrentCreate, TorrentVersion
 try:
     import libtorrent
 except ImportError:
-    libtorrent = None
+    libtorrent = None  # type: ignore
 
 
 def make_paths(n: int = 10, p_descend: float = 0.3, p_ascend: float = 0.1) -> list[Path]:
@@ -37,7 +37,7 @@ def make_paths(n: int = 10, p_descend: float = 0.3, p_ascend: float = 0.1) -> li
 
 
 def make_files(
-    base: Path, paths: list[Path] = None, piece_length: int = 32 * (2**10)
+    base: Path, paths: list[Path] | None = None, piece_length: int = 32 * (2**10)
 ) -> list[Path]:
     if paths is None:
         paths = make_paths()
@@ -83,7 +83,7 @@ def default_libtorrent(
     base: Path,
     piece_length: int = 32 * (2**10),
     version: TorrentVersion = TorrentVersion.hybrid,
-    output: Path = None,
+    output: Path | None = None,
     bencode: bool = False,
 ) -> dict | bytes:
     creator = default_tcreate(paths, base, piece_length)

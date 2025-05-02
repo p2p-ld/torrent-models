@@ -1,4 +1,8 @@
-from typing import Any
+from typing import Any, TypeAlias, TypeVar
+
+from tqdm import tqdm
+
+_T = TypeVar("_T")
 
 
 class DummyPbar:
@@ -15,3 +19,15 @@ class DummyPbar:
 
     def set_description(self, *args: Any, **kwargs: Any) -> None:
         pass
+
+
+PbarLike: TypeAlias = DummyPbar | tqdm
+
+# class PbarLike(Protocol):
+#     """pbar that does nothing so we i don't get fined by mypy"""
+#
+#     def update(self, n: int = 1) -> None:...
+#
+#     def close(self) -> None:...
+#
+#     def set_description(self, *args: Any, **kwargs: Any) -> None:...

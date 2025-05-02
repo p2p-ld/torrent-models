@@ -169,6 +169,7 @@ warn_unused_ignores = true
 show_error_context = true
 show_column_numbers = true
 show_error_code_links = true
+allow_redefinition = true
 pretty = true
 color_output = true
 plugins = ['pydantic.mypy']

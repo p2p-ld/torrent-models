@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 from time import time
 from typing import Literal as L
+from typing import cast
 
 import click
 import humanize
@@ -11,9 +12,9 @@ from rich.pretty import Pretty
 from rich.table import Table
 
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
-from torrent_models.info import InfoDictHybridCreate
+from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
 from torrent_models.torrent import Torrent, TorrentCreate, list_files
-from torrent_models.types import TorrentVersion, V1PieceLength, V2PieceLength
+from torrent_models.types import FileItem, TorrentVersion, V1PieceLength, V2PieceLength
 
 
 @click.group("torrent")
@@ -185,7 +186,7 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
     for k, v in summary.items():
         table.add_row(k, v)
 
-    exclude = set()
+    exclude = {}
     context = {"mode": "print", "hash_truncate": True}
     file_table = None
     if verbose <= 1:
@@ -202,14 +203,23 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
         file_table.add_column("Size")
 
         if t.torrent_version == TorrentVersion.v1:
+            t.info = cast(InfoDictV1, t.info)
+            tfiles = (
+                t.info.files
+                if t.info.files is not None
+                else [FileItem(path=t.info.name, length=t.info.length)]
+            )
+
             files = [
-                ("/".join(f.path), humanize.naturalsize(f.length, binary=True))
-                for f in t.info.files
+                ("/".join(f.path), humanize.naturalsize(f.length, binary=True), "")
+                for f in tfiles
                 if f.attr not in (b"p", "p")
             ]
         else:
+            t.info = cast(InfoDictV2 | InfoDictHybrid, t.info)
             file_table.add_column("Hash")
             tree = t.flat_files
+            assert tree is not None
             files = [
                 (
                     str(k),
@@ -222,7 +232,9 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
         for f in files:
             file_table.add_row(*f)
 
-    dumped = t.model_dump(by_alias=True, exclude=exclude, exclude_none=True, context=context)
+    dumped = t.model_dump(
+        by_alias=True, exclude=exclude, exclude_none=True, context=context  # type: ignore
+    )
 
     if verbose < 1 or verbose > 2:
         group = Group(
@@ -230,6 +242,7 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
             Pretty(dumped),
         )
     elif verbose <= 2:
+        assert file_table is not None
         group = Group(table, Pretty(dumped), file_table)
 
     print(group)

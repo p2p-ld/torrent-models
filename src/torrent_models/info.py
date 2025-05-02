@@ -1,6 +1,6 @@
 import hashlib
 from math import ceil
-from typing import Annotated, Self
+from typing import Annotated, Self, cast
 
 import bencode_rs
 from annotated_types import Gt, MinLen
@@ -22,7 +22,7 @@ from torrent_models.types import (
 class InfoDictRoot(ConfiguredBase):
     """Fields shared by v1 and v2 infodicts"""
 
-    name: ByteStr
+    name: ByteStr | None = None
     source: ByteStr | None = None
 
     _total_length: int | None = None
@@ -40,7 +40,7 @@ class InfoDictV1Base(InfoDictRoot):
     pieces: Pieces | None = None
     length: Annotated[int, Gt(0)] | None = None
     files: Annotated[list[FileItem], MinLen(1)] | None = Field(None)
-    piece_length: V1PieceLength = Field(alias="piece length")
+    piece_length: V1PieceLength | None = Field(alias="piece length")
 
     @property
     def v1_infohash(self) -> bytes:
@@ -67,13 +67,14 @@ class InfoDictV1Base(InfoDictRoot):
         """
         We allow extra fields, but not those in v2 infodicts, in order to make them discriminable
         """
-        assert "file tree" not in self.__pydantic_extra__, "V1 Infodicts can't have file_trees"
+        if isinstance(self.__pydantic_extra__, dict):
+            assert "file tree" not in self.__pydantic_extra__, "V1 Infodicts can't have file_trees"
         return self
 
     @model_validator(mode="after")
     def expected_n_pieces(self) -> Self:
         """We have the expected number of pieces given the sizes implied by our file dict"""
-        if self.pieces is None:
+        if self.pieces is None or self.piece_length is None:
             return self
         n_pieces = ceil(self.total_length / self.piece_length)
         assert n_pieces == len(self.pieces), (
@@ -88,7 +89,9 @@ class InfoDictV1Base(InfoDictRoot):
 class InfoDictV1(InfoDictV1Base):
     """An infodict from a valid V1 torrent"""
 
+    name: ByteStr
     pieces: Pieces
+    piece_length: V1PieceLength = Field(alias="piece length")
 
     @model_validator(mode="after")
     def length_xor_files(self) -> Self:
@@ -112,14 +115,15 @@ class InfoDictV1Create(InfoDictV1Base):
 class InfoDictV2Base(InfoDictRoot):
     meta_version: int = Field(2, alias="meta version")
     file_tree: FileTreeType | None = Field(None, alias="file tree")
-    piece_length: V2PieceLength = Field(alias="piece length")
+    piece_length: V2PieceLength | None = Field(alias="piece length")
 
     @model_validator(mode="after")
     def disallowed_fields(self) -> Self:
         """
         We allow extra fields, but not those in v1 infodicts, in order to make them discriminable
         """
-        assert "pieces" not in self.__pydantic_extra__, "V2 Infodicts can't have pieces"
+        if isinstance(self.__pydantic_extra__, dict):
+            assert "pieces" not in self.__pydantic_extra__, "V2 Infodicts can't have pieces"
         return self
 
     @property
@@ -151,6 +155,8 @@ class InfoDictV2Base(InfoDictRoot):
 class InfoDictV2(InfoDictV2Base):
     """An infodict from a valid V2 torrent"""
 
+    name: ByteStr
+    piece_length: V2PieceLength = Field(alias="piece length")
     file_tree: FileTreeType = Field(alias="file tree", exclude=False)
 
 
@@ -185,7 +191,11 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
         """We have the expected number of pieces given the sizes implied by our file dict"""
         if self.pieces is None:
             return self
-        n_pieces = ceil(sum([f.length for f in self.files]) / self.piece_length)
+        if self.files is not None:
+            n_pieces = ceil(sum([f.length for f in self.files]) / self.piece_length)
+        else:
+            self.length = cast(int, self.length)
+            n_pieces = ceil(self.length / self.piece_length)
 
         assert n_pieces == len(self.pieces), (
             f"Expected {n_pieces} pieces for torrent with "

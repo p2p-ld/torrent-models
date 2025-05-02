@@ -5,13 +5,10 @@ from typing import Any, Self, cast
 from typing import Literal as L
 
 import bencode_rs
-from pydantic import (
-    Field,
-    model_validator,
-)
+from pydantic import AnyUrl, Field, model_validator
 
 from torrent_models.base import ConfiguredBase
-from torrent_models.const import EXCLUDE_FILES
+from torrent_models.const import DEFAULT_TORRENT_CREATOR, EXCLUDE_FILES
 from torrent_models.hashing.hybrid import HybridHasher, add_padfiles
 from torrent_models.hashing.v1 import hash_pieces
 from torrent_models.hashing.v2 import FileTree, PieceLayers
@@ -31,6 +28,7 @@ from torrent_models.types import (
     ListOrValue,
     PieceLayersType,
     TorrentVersion,
+    TrackerFields,
     UnixDatetime,
     V1PieceLength,
     V2PieceLength,
@@ -42,7 +40,7 @@ class TorrentBase(ConfiguredBase):
     announce: ByteUrl
     announce_list: list[list[ByteUrl]] | None = Field(default=None, alias="announce-list")
     comment: ByteStr | None = None
-    created_by: ByteStr | None = Field(None, alias="created by")
+    created_by: ByteStr | None = Field(DEFAULT_TORRENT_CREATOR, alias="created by")
     creation_date: UnixDatetime | None = Field(default=None, alias="creation date")
     info: InfoDictV1 | InfoDictV2 | InfoDictHybrid = Field(..., union_mode="left_to_right")
     piece_layers: PieceLayersType | None = Field(None, alias="piece layers")
@@ -98,10 +96,12 @@ class TorrentBase(ConfiguredBase):
         """
 
         if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
+            self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
             if self.info.files is None:
                 return 1
             return len([f for f in self.info.files if f.attr not in (b"p", "p")])
         else:
+            self.info = cast(InfoDictV2, self.info)
             tree = FileTree.flatten_tree(self.info.file_tree)
             return len(tree)
 
@@ -111,10 +111,13 @@ class TorrentBase(ConfiguredBase):
         Total size of the torrent, excluding padfiles, in bytes
         """
         if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
+            self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
             if self.info.files is None:
+                self.info.length = cast(int, self.info.length)
                 return self.info.length
             return sum([f.length for f in self.info.files if f.attr not in (b"p", "p")])
         else:
+            self.info = cast(InfoDictV2, self.info)
             tree = FileTree.flatten_tree(self.info.file_tree)
             return sum([t["length"] for t in tree.values()])
 
@@ -123,6 +126,7 @@ class TorrentBase(ConfiguredBase):
         """A flattened version of the v2 file tree"""
         if self.torrent_version == TorrentVersion.v1:
             return None
+        self.info = cast(InfoDictV2, self.info)
         return FileTree.flatten_tree(self.info.file_tree)
 
     def model_dump_torrent(self, mode: L["str", "binary"] = "binary", **kwargs: Any) -> dict:
@@ -317,7 +321,7 @@ class TorrentCreate(TorrentBase):
         # and hash values which are created during generation
         dumped = self.model_dump(
             exclude_none=True,
-            exclude=self._EXCLUDE,
+            exclude=self._EXCLUDE,  # type: ignore
             by_alias=False,
         )
 
@@ -328,7 +332,7 @@ class TorrentCreate(TorrentBase):
         dumped.update(self.get_trackers())
         return dumped
 
-    def _generate_v1(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+    def _generate_v1(self, n_processes: int, progress: bool = False) -> Torrent:
         dumped = self._generate_common()
 
         file_items, files = self._get_v1_paths(v1_only=True)
@@ -350,14 +354,15 @@ class TorrentCreate(TorrentBase):
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
-    def _generate_v2(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+    def _generate_v2(self, n_processes: int, progress: bool = False) -> Torrent:
         dumped = self._generate_common()
         if self.paths:
             paths = clean_files(self.paths, relative_to=self.path_root)
         else:
             # remake with new hashes
             # paths within the file tree should already be relative, no need to fix them
-            paths = [path for path in FileTree.flatten_tree(self.info.file_tree)]
+            assert self.info.file_tree is not None, "No top-level paths or infodict file_tree found"
+            paths = [Path(path) for path in FileTree.flatten_tree(self.info.file_tree)]
 
         if "piece_layers" not in dumped or "file_tree" not in dumped["info"]:
             piece_layers = PieceLayers.from_paths(
@@ -374,7 +379,7 @@ class TorrentCreate(TorrentBase):
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
-    def _generate_hybrid(self, n_processes: int | None = None, progress: bool = False) -> Torrent:
+    def _generate_hybrid(self, n_processes: int, progress: bool = False) -> Torrent:
         dumped = self._generate_common()
 
         # Gather paths
@@ -446,8 +451,9 @@ class TorrentCreate(TorrentBase):
         """
         if self.paths:
             paths = self.paths.copy()
-        elif self.info.file_tree:
+        elif self.info.file_tree is not None:
             tree = self.flat_files
+            assert tree is not None
             paths = [Path(t) for t in tree]
         else:
             _, paths = self._get_v1_paths()
@@ -465,8 +471,8 @@ class TorrentCreate(TorrentBase):
         elif self.paths:
             files = self.paths
         elif self.info.files:
-            files = [Path(*f.path) for f in cast(list[FileItem], self.info.files)]
-        elif self.info.length:
+            files = [Path(*f.path) for f in self.info.files]
+        elif self.info.length and self.info.name is not None:
             files = [Path(self.info.name)]
         else:
             raise ValueError("paths not provided, and info.files and info.length are unset!")
@@ -480,30 +486,37 @@ class TorrentCreate(TorrentBase):
 
     def get_trackers(
         self,
-    ) -> dict[L["announce"] | L["announce-list"], ByteUrl | list[list[ByteUrl]]]:
+    ) -> TrackerFields:
         # FIXME: hideous
         if self.trackers:
             if isinstance(self.trackers[0], list):
+
+                self.trackers = cast(list[list[AnyUrl]], self.trackers)
                 if len(self.trackers[0]) == 1 and len(self.trackers[0][0]) == 1:
                     return {"announce": self.trackers[0][0]}
                 else:
                     return {"announce": self.trackers[0][0], "announce-list": self.trackers}
             else:
+                self.trackers = cast(list[AnyUrl], self.trackers)
                 if len(self.trackers) == 1:
                     return {"announce": self.trackers[0]}
                 else:
-                    self.trackers = cast(list[ByteUrl], self.trackers)
                     return {
                         "announce": self.trackers[0],
                         "announce-list": [[t] for t in self.trackers],
                     }
         else:
-            trackers: dict[L["announce"] | L["announce-list"], ByteUrl | list[list[ByteUrl]]] = {}
-            if self.announce:
-                trackers["announce"] = str(self.announce)
-            if self.announce_list:
-                trackers["announce-list"] = self.announce_list
-            return trackers
+            assert (
+                self.announce is not None
+            ), "No top-level trackers list passed, and announce is None"
+            trackers_: TrackerFields = {
+                "announce": self.announce,
+            }
+
+            if self.announce_list is not None:
+                trackers_["announce-list"] = self.announce_list
+
+            return trackers_
 
     def _get_piece_length(self) -> int:
         piece_length = self.piece_length if self.piece_length else self.info.piece_length
