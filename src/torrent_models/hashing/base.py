@@ -227,6 +227,9 @@ class _PBars:
         hash_total: int | None = None,
         dummy: bool = False,
     ):
+        self.file: PbarLike
+        self.read: PbarLike
+        self.hash: PbarLike
         if dummy:
             self.file = DummyPbar()
             self.read = DummyPbar()
