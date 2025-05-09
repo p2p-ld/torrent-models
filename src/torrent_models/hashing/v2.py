@@ -570,7 +570,7 @@ class PieceLayers:
                 path=abs_path, piece_length=piece_length, pool=pool, progress=progress
             )
             tree.root_hash = cast(bytes, tree.root_hash)
-            file_tree[str(path)] = FileTreeItem(
+            file_tree[path.as_posix()] = FileTreeItem(
                 **{"pieces root": tree.root_hash, "length": get_size(abs_path)}
             )
             if tree.piece_hashes:
