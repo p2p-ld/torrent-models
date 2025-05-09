@@ -8,7 +8,7 @@ from math import ceil
 from multiprocessing.pool import ApplyResult, AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Generic, TypeVar, overload
+from typing import Any, Generic, TypeAlias, TypeVar, overload
 from typing import Literal as L
 
 from anyio import open_file, run
@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from torrent_models.compat import get_size
-from torrent_models.junkdrawer import DummyPbar, PbarLike
 from torrent_models.types import V1PieceLength, V2PieceLength
 
 BLOCK_SIZE = 16 * (2**10)
@@ -128,52 +127,41 @@ class HasherBase(BaseModel, Generic[T]):
         Hash all files
         """
         pool = mp.Pool(self.n_processes)
-        file_pbar: PbarLike
-        read_pbar: PbarLike
-        hash_pbar: PbarLike
-        if self.progress:
-            file_pbar = tqdm(total=len(self.paths), desc="File", position=0)
-            read_pbar = tqdm(total=self.total_chunks, desc="Reading Chunk", position=1)
-            hash_pbar = tqdm(total=self.total_hashes, desc="Hashing Chunk", position=2)
-        else:
-            file_pbar = DummyPbar()
-            read_pbar = DummyPbar()
-            hash_pbar = DummyPbar()
+        pbars = self._pbars()
 
         hashes = []
         results: deque[ApplyResult] = deque()
         try:
-            last_path = None
             for path in self.paths:
-                if path != last_path:
-                    file_pbar.set_description(str(path))
+
+                pbars.file.set_description(str(path))
 
                 async for chunk in iter_blocks(self.path_base / path, read_size=self.read_size):
-                    read_pbar.update()
+                    pbars.read.update()
                     res = self.update(chunk, pool)
                     results.extend(res)
                     results, hash = self._step_results(results)
                     if hash is not None:
                         hashes.append(hash)
-                        hash_pbar.update()
+                        pbars.hash.update()
 
                     if self.max_outstanding_results:
                         while len(results) > self.max_outstanding_results:
                             results, hash = self._step_results(results, block=True)
                             hashes.append(hash)
-                            hash_pbar.update()
+                            pbars.hash.update()
+
+                pbars.file.update()
 
             results.extend(self._after_read(pool))
             while len(results) > 0:
                 results, hash = self._step_results(results, block=True)
                 hashes.append(hash)
-                hash_pbar.update()
+                pbars.hash.update()
 
         finally:
             pool.close()
-            file_pbar.close()
-            read_pbar.close()
-            hash_pbar.close()
+            pbars.close()
 
         return hashes
 
@@ -198,3 +186,57 @@ class HasherBase(BaseModel, Generic[T]):
                 # she not done yet
                 results.appendleft(res)
                 return results, None
+
+    def _pbars(self) -> "_PBars":
+        return _PBars(
+            dummy=not self.progress,
+            file_total=len(self.paths),
+            read_total=self.total_chunks,
+            hash_total=self.total_hashes,
+        )
+
+
+class DummyPbar:
+    """pbar that does nothing so we i don't get fined by mypy"""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def update(self, n: int = 1) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def set_description(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+PbarLike: TypeAlias = DummyPbar | tqdm
+
+
+class _PBars:
+    """
+    Wrapper around multiple pbars, including dummy pbars for when progress is disabled
+    """
+
+    def __init__(
+        self,
+        file_total: int | None = None,
+        read_total: int | None = None,
+        hash_total: int | None = None,
+        dummy: bool = False,
+    ):
+        if dummy:
+            self.file = DummyPbar()
+            self.read = DummyPbar()
+            self.hash = DummyPbar()
+        else:
+            self.file = tqdm(total=file_total, desc="File", position=0)
+            self.read = tqdm(total=read_total, desc="Reading Chunk", position=1)
+            self.hash = tqdm(total=hash_total, desc="Hashing Chunk", position=2)
+
+    def close(self) -> None:
+        self.file.close()
+        self.read.close()
+        self.hash.close()

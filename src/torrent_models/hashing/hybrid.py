@@ -22,7 +22,7 @@ from typing import cast
 
 from pydantic import PrivateAttr
 
-from torrent_models.hashing.hasher import BLOCK_SIZE, Chunk, Hash, HasherBase
+from torrent_models.hashing.base import BLOCK_SIZE, Chunk, Hash, HasherBase
 from torrent_models.hashing.v2 import MerkleTree, PieceLayers
 from torrent_models.types import FileItem, V2PieceLength
 

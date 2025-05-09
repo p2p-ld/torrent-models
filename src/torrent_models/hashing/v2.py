@@ -20,8 +20,7 @@ from pydantic import BaseModel
 from tqdm.asyncio import tqdm
 
 from torrent_models.compat import get_size
-from torrent_models.hashing.hasher import BLOCK_SIZE, Hash, iter_blocks
-from torrent_models.junkdrawer import DummyPbar, PbarLike
+from torrent_models.hashing.base import BLOCK_SIZE, DummyPbar, Hash, PbarLike, iter_blocks
 from torrent_models.types import FileTreeItem, FileTreeType
 
 
