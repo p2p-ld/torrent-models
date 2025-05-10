@@ -151,6 +151,10 @@ ignore = [
 fixable = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
+"src/torrent_models/__init__.py" = [
+    # Import order matters for top level __init__.py
+    "I001"
+]
 "tests/**/test_*" = ["ANN001", "ANN201", "F841"]
 "tests/bench.py" = ["ANN001", "ANN201", "F841"]
 "tests/conftest.py" = ["F403", "E402"]
