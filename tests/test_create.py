@@ -1,8 +1,8 @@
 import bencode_rs
 import pytest
 
-from torrent_models.torrent import TorrentCreate
-from torrent_models.types import TorrentVersion
+from torrent_models import TorrentCreate
+from torrent_models.types.common import TorrentVersion
 
 from .conftest import DATA_DIR
 

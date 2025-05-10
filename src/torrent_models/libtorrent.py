@@ -18,11 +18,11 @@ import bencode_rs
 from tqdm import tqdm
 
 from torrent_models.compat import get_size
-from torrent_models.types import TorrentVersion
+from torrent_models.types.common import TorrentVersion
 
 if TYPE_CHECKING:
 
-    from torrent_models.torrent import TorrentCreate
+    from torrent_models import TorrentCreate
 
 try:
     import libtorrent

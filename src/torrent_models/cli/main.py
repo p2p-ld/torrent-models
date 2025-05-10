@@ -11,11 +11,15 @@ from rich.console import Group
 from rich.pretty import Pretty
 from rich.table import Table
 
+from torrent_models import TorrentCreate
 from torrent_models.compat import get_size
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
+from torrent_models.create import list_files
 from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
-from torrent_models.torrent import Torrent, TorrentCreate, list_files
-from torrent_models.types import FileItem, TorrentVersion, V1PieceLength, V2PieceLength
+from torrent_models.torrent import Torrent
+from torrent_models.types.common import TorrentVersion
+from torrent_models.types.v1 import FileItem, V1PieceLength
+from torrent_models.types.v2 import V2PieceLength
 
 
 @click.group("torrent")

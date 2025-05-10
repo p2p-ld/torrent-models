@@ -8,15 +8,9 @@ from pydantic import Field, model_validator
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.hashing.v2 import FileTree
-from torrent_models.types import (
-    ByteStr,
-    FileItem,
-    FileTreeItem,
-    FileTreeType,
-    Pieces,
-    V1PieceLength,
-    V2PieceLength,
-)
+from torrent_models.types.serdes import ByteStr
+from torrent_models.types.v1 import FileItem, Pieces, V1PieceLength
+from torrent_models.types.v2 import FileTreeItem, FileTreeType, V2PieceLength
 
 
 class InfoDictRoot(ConfiguredBase):

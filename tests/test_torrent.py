@@ -4,7 +4,7 @@ import libtorrent
 import pytest
 
 from torrent_models import Torrent
-from torrent_models.types import TorrentVersion
+from torrent_models.types.common import TorrentVersion
 
 from .conftest import DATA_DIR
 

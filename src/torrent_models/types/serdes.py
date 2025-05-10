@@ -1,32 +1,13 @@
-import sys
+"""
+Types used only in model serialization and deserialization:
+AKA types that do not represent concrete types/fields in a torrent file
+"""
+
 from datetime import datetime
-from enum import StrEnum
-from typing import Annotated, NotRequired, TypeAlias, TypeVar, Union, cast
-from typing import Literal as L
+from typing import Annotated, TypeVar, cast
 
-from pydantic import (
-    AfterValidator,
-    AnyUrl,
-    BaseModel,
-    BeforeValidator,
-    PlainSerializer,
-    SerializationInfo,
-    SerializerFunctionWrapHandler,
-    WrapSerializer,
-)
-
-if sys.version_info < (3, 12):
-    from typing_extensions import TypeAliasType, TypedDict
-else:
-    from typing import TypeAliasType, TypedDict
-
-
-class TorrentVersion(StrEnum):
-    """Version of the bittorrent .torrent file spec"""
-
-    v1 = "v1"
-    v2 = "v2"
-    hybrid = "hybrid"
+from pydantic import AnyUrl, BaseModel, BeforeValidator, PlainSerializer, WrapSerializer
+from pydantic_core.core_schema import SerializationInfo, SerializerFunctionWrapHandler
 
 
 def _timestamp_to_datetime(val: int | datetime) -> datetime:
@@ -42,8 +23,6 @@ def _datetime_to_timestamp(val: datetime) -> int:
 UnixDatetime = Annotated[
     datetime, BeforeValidator(_timestamp_to_datetime), PlainSerializer(_datetime_to_timestamp)
 ]
-
-
 EXCLUDE_STRINGIFY = ("piece_layers", "piece layers", "path")
 
 
@@ -122,90 +101,6 @@ def _to_bytes(value: str | bytes, info: SerializationInfo) -> bytes | str:
 
 ByteStr = Annotated[str, PlainSerializer(_to_bytes)]
 ByteUrl = Annotated[AnyUrl, PlainSerializer(_to_bytes)]
-
-FileName: TypeAlias = ByteStr
-"""Placeholder in case specific validation is needed for filenames"""
-FilePart: TypeAlias = ByteStr
-"""Placeholder in case specific validation is needed for filenames"""
-
-
-def _divisible_by_16kib(size: int) -> int:
-    assert size >= (16 * (2**10)), "Size must be at least 16 KiB"
-    assert size % (16 * (2**10)) == 0, "Size must be divisible by 16 KiB"
-    return size
-
-
-def _power_of_two(n: int) -> int:
-    assert (n & (n - 1) == 0) and n != 0, "Piece size must be a power of two"
-    return n
-
-
-def _validate_size(size: int) -> int:
-    assert _power_of_two(size), "Piece size must be a power of two"
-    assert size >= 16 * (2**10), "Piece size must be at least 16KiB"
-    # assert _divisible_by_16kib(size), "Piece size must be divisible by 16kib and positive"
-    return size
-
-
-V1PieceLength = Annotated[int, AfterValidator(_power_of_two)]
-V2PieceLength = Annotated[int, AfterValidator(_divisible_by_16kib)]
-
-
-def _validate_pieces(pieces: bytes | list[bytes]) -> list[bytes]:
-    if isinstance(pieces, bytes):
-        assert len(pieces) % 20 == 0, "Pieces length must be divisible by 20"
-        pieces = [pieces[i : i + 20] for i in range(0, len(pieces), 20)]
-    else:
-        assert all([len(piece) == 20 for piece in pieces]), "Pieces length must be divisible by 20"
-
-    return pieces
-
-
-def _serialize_pieces(
-    pieces: list[bytes], info: SerializationInfo
-) -> bytes | list[bytes] | list[str]:
-    """Join piece lists to a big long byte string unless we're pretty printing"""
-    if info.context and info.context.get("mode") == "print":
-        ret = [p.hex() for p in pieces]
-        if info.context.get("hash_truncate"):
-            ret = [p[0:8] for p in ret]
-        return ret
-    return b"".join(pieces)
-
-
-Pieces = Annotated[
-    list[bytes], BeforeValidator(_validate_pieces), PlainSerializer(_serialize_pieces)
-]
-
-
-def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | list[str]:
-    if info.context and info.context.get("mode") == "print":
-        ret: str = value.hex()
-
-        if info.context.get("hash_truncate"):
-            ret = ret[0:8]
-        # split layers
-        if len(ret) > 64:
-            return [ret[i : i + 64] for i in range(0, len(ret), 64)]
-        else:
-            return ret
-
-    return value
-
-
-PieceLayerItem = Annotated[bytes, PlainSerializer(_serialize_v2_hash)]
-
-PieceLayersType = dict[PieceLayerItem, PieceLayerItem]
-
-FileTreeItem = TypedDict(
-    "FileTreeItem", {"length": int, "pieces root": NotRequired[PieceLayerItem]}
-)
-
-FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
-    "FileTreeType", dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]]  # type: ignore
-)
-
-
 _Inner = TypeVar("_Inner")
 
 
@@ -230,16 +125,3 @@ def _from_list(
 
 
 ListOrValue = Annotated[list[_Inner], BeforeValidator(_to_list), WrapSerializer(_from_list)]
-
-
-class FileItem(BaseModel):
-    length: int
-    path: list[FilePart]
-    attr: L[b"p"] | None = None
-
-
-TrackerFields = TypedDict(
-    "TrackerFields",
-    {"announce": AnyUrl | str, "announce-list": NotRequired[list[list[AnyUrl]] | list[list[str]]]},
-)
-"""The `announce` and `announce-list`"""

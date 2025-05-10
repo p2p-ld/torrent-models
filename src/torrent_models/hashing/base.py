@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from torrent_models.compat import get_size
-from torrent_models.types import V1PieceLength, V2PieceLength
+from torrent_models.types.v1 import V1PieceLength
+from torrent_models.types.v2 import V2PieceLength
 
 BLOCK_SIZE = 16 * (2**10)
 
@@ -39,8 +40,15 @@ class Hash(BaseModel):
     type: L["block", "v1_piece", "v2_piece"]
     path: Path
     hash: bytes
-    idx: int
-    """The index of the block for ordering, may be within-file or across-files"""
+    idx: int = Field(
+        ...,
+        description="""
+    The index of the block for ordering.
+    
+    For v1 hashes, the absolute index of piece across all files.
+    For v2 block and piece hashes, index within the given file
+    """,
+    )
 
 
 async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator[Chunk, None]:

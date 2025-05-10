@@ -24,7 +24,8 @@ from pydantic import PrivateAttr
 
 from torrent_models.hashing.base import BLOCK_SIZE, Chunk, Hash, HasherBase
 from torrent_models.hashing.v2 import MerkleTree, PieceLayers
-from torrent_models.types import FileItem, V2PieceLength
+from torrent_models.types.v1 import FileItem
+from torrent_models.types.v2 import V2PieceLength
 
 
 def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:

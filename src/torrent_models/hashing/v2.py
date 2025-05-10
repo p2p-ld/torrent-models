@@ -21,7 +21,7 @@ from tqdm.asyncio import tqdm
 
 from torrent_models.compat import get_size
 from torrent_models.hashing.base import BLOCK_SIZE, DummyPbar, Hash, PbarLike, iter_blocks
-from torrent_models.types import FileTreeItem, FileTreeType
+from torrent_models.types.v2 import FileTreeItem, FileTreeType
 
 
 @dataclass
