@@ -8,7 +8,6 @@ from pydantic import Field, model_validator
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
-from torrent_models.hashing.v2 import FileTree
 from torrent_models.info import (
     InfoDictHybrid,
     InfoDictV1,
@@ -26,6 +25,7 @@ from torrent_models.types import (
     UnixDatetime,
     str_keys,
 )
+from torrent_models.types.v2 import FileTree
 
 
 class TorrentBase(ConfiguredBase):

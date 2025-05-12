@@ -1,6 +1,6 @@
 import pytest
 
-from torrent_models.hashing.v2 import FileTree
+from torrent_models.types.v2 import FileTree
 
 # add test cases of paired flattened and unflattened file trees here:
 

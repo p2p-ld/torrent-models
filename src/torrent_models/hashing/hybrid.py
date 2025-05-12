@@ -12,20 +12,20 @@ Hybrid torrents require us to do both, as well as generate padfiles,
 so we use routines from the v1 and v2 but build on top of them.
 """
 
-import hashlib
 from functools import cached_property
 from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import cast
+from typing import Annotated, cast
 
+from annotated_types import Interval
 from pydantic import PrivateAttr
 
-from torrent_models.hashing.base import BLOCK_SIZE, Chunk, Hash, HasherBase
-from torrent_models.hashing.v2 import MerkleTree, PieceLayers
+from torrent_models.const import BLOCK_SIZE
+from torrent_models.hashing.base import Chunk, Hash, HasherBase
 from torrent_models.types.v1 import FileItem
-from torrent_models.types.v2 import V2PieceLength
+from torrent_models.types.v2 import MerkleTree, PieceLayers, V2PieceLength
 
 
 def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
@@ -44,8 +44,14 @@ def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
     return padded
 
 
-class HybridHasher(HasherBase[tuple[PieceLayers, list[bytes]]]):
+class HybridHasher(HasherBase):
     piece_length: V2PieceLength
+    read_size: Annotated[int, Interval(le=BLOCK_SIZE, ge=BLOCK_SIZE)] = BLOCK_SIZE
+    """
+    How much of a file should be read in a single read call.
+    
+    For now the hybrid and v2 hashers must read single blocks at a time.
+    """
 
     _v1_chunks: list[Chunk] = PrivateAttr(default_factory=list)
     _last_path: Path | None = None
@@ -78,32 +84,6 @@ class HybridHasher(HasherBase[tuple[PieceLayers, list[bytes]]]):
 
         return res
 
-    def complete(self, hashes: list[Hash]) -> tuple[PieceLayers, list[bytes]]:
-        v1_pieces = [h for h in hashes if h.type == "v1_piece"]
-        v1_pieces = sorted(v1_pieces, key=lambda h: h.idx)
-        v1_pieces = [h.hash for h in v1_pieces]
-
-        v2_leaf_hashes = [h for h in hashes if h.type == "block"]
-        trees = MerkleTree.from_leaf_hashes(v2_leaf_hashes, self.path_base, self.piece_length)
-        layers = PieceLayers.from_trees(trees)
-        return layers, v1_pieces
-
-    def _hash_v1(self, chunk: Chunk) -> Hash:
-        return Hash.model_construct(
-            hash=hashlib.sha1(chunk.chunk).digest(),
-            type="v1_piece",
-            path=chunk.path.relative_to(self.path_base),
-            idx=chunk.idx,
-        )
-
-    def _hash_v2(self, chunk: Chunk) -> Hash:
-        return Hash.model_construct(
-            hash=hashlib.sha256(chunk.chunk).digest(),
-            type="block",
-            path=chunk.path.relative_to(self.path_base),
-            idx=chunk.idx,
-        )
-
     def _submit_v1(self, pool: PoolType) -> AsyncResult:
         piece = b"".join([c.chunk for c in self._v1_chunks])
 
@@ -120,3 +100,17 @@ class HybridHasher(HasherBase[tuple[PieceLayers, list[bytes]]]):
             res.append(self._submit_v1(pool))
             self._v1_chunks = []
         return res
+
+    def split_v1_v2(
+        self,
+        hashes: list[Hash],
+    ) -> tuple[PieceLayers, list[bytes]]:
+        """Split v1 and v2 hashes, returning sorted v1 pieces and v2 piece layers"""
+        v1_pieces = [h for h in hashes if h.type == "v1_piece"]
+        v1_pieces = sorted(v1_pieces, key=lambda h: h.idx)
+        v1_pieces = [h.hash for h in v1_pieces]
+
+        v2_leaf_hashes = [h for h in hashes if h.type == "block"]
+        trees = MerkleTree.from_leaf_hashes(v2_leaf_hashes, self.path_base, self.piece_length)
+        layers = PieceLayers.from_trees(trees)
+        return layers, v1_pieces

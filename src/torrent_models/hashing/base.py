@@ -1,3 +1,4 @@
+import hashlib
 import multiprocessing as mp
 from abc import abstractmethod
 from collections import deque
@@ -8,7 +9,7 @@ from math import ceil
 from multiprocessing.pool import ApplyResult, AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Any, Generic, TypeAlias, TypeVar, overload
+from typing import Any, TypeAlias, overload
 from typing import Literal as L
 
 from anyio import open_file, run
@@ -16,13 +17,9 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from torrent_models.compat import get_size
+from torrent_models.const import BLOCK_SIZE
 from torrent_models.types.v1 import V1PieceLength
 from torrent_models.types.v2 import V2PieceLength
-
-BLOCK_SIZE = 16 * (2**10)
-
-T = TypeVar("T")
-"""Type of completed result of hasher"""
 
 
 class Chunk(BaseModel):
@@ -63,7 +60,7 @@ async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator
             last_size = len(read)
 
 
-class HasherBase(BaseModel, Generic[T]):
+class HasherBase(BaseModel):
     paths: list[Path]
     """
     Relative paths beneath the path base to hash.
@@ -86,6 +83,22 @@ class HasherBase(BaseModel, Generic[T]):
     the number of outstanding chunks to process are smaller than this size
     """
 
+    def _hash_v1(self, chunk: Chunk) -> Hash:
+        return Hash.model_construct(
+            hash=hashlib.sha1(chunk.chunk).digest(),
+            type="v1_piece",
+            path=chunk.path.relative_to(self.path_base),
+            idx=chunk.idx,
+        )
+
+    def _hash_v2(self, chunk: Chunk) -> Hash:
+        return Hash.model_construct(
+            hash=hashlib.sha256(chunk.chunk).digest(),
+            type="block",
+            path=chunk.path.relative_to(self.path_base),
+            idx=chunk.idx,
+        )
+
     @abstractmethod
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
         """
@@ -93,10 +106,9 @@ class HasherBase(BaseModel, Generic[T]):
         """
         pass
 
-    @abstractmethod
-    def complete(self, hashes: list[Hash]) -> T:
+    def complete(self, hashes: list[Hash]) -> list[Hash]:
         """After hashing, do any postprocessing to yield the desired output"""
-        pass
+        return hashes
 
     def _after_read(self, pool: PoolType) -> list[AsyncResult]:
         """Optional step after reading completes"""
@@ -123,11 +135,11 @@ class HasherBase(BaseModel, Generic[T]):
         else:
             return self.memory_limit // self.read_size
 
-    async def process_async(self) -> T:
+    async def process_async(self) -> list[Hash]:
         hashes = await self.hash()
         return self.complete(hashes)
 
-    def process(self) -> T:
+    def process(self) -> list[Hash]:
         return run(self.process_async)
 
     async def hash(self) -> list[Hash]:
@@ -184,6 +196,9 @@ class HasherBase(BaseModel, Generic[T]):
 
     def _step_results(self, results: deque, block: bool = False) -> tuple[deque, Hash | None]:
         """Step the outstanding results, yielding a single hash"""
+        if len(results) == 0:
+            return results, None
+
         res = results.popleft()
         if block:
             return results, res.get()

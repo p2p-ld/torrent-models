@@ -17,11 +17,11 @@ from torrent_models.compat import get_size
 from torrent_models.const import EXCLUDE_FILES
 from torrent_models.hashing.hybrid import HybridHasher, add_padfiles
 from torrent_models.hashing.v1 import hash_pieces
-from torrent_models.hashing.v2 import FileTree, PieceLayers
 from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
 from torrent_models.torrent import TorrentBase
 from torrent_models.types import FileItem, TrackerFields, V1PieceLength, V2PieceLength
 from torrent_models.types.serdes import ByteUrl
+from torrent_models.types.v2 import FileTree, PieceLayers
 
 
 class TorrentCreate(TorrentBase):
@@ -182,7 +182,6 @@ class TorrentCreate(TorrentBase):
                 files,
                 piece_length=dumped["info"]["piece_length"],
                 path_root=self.path_root,
-                sort=False,
                 progress=progress,
                 n_processes=n_processes,
             )
@@ -256,7 +255,8 @@ class TorrentCreate(TorrentBase):
             n_processes=n_processes,
             progress=progress,
         )
-        piece_layers, v1_pieces = hasher.process()
+        hashes = hasher.process()
+        piece_layers, v1_pieces = hasher.split_v1_v2(hashes)
         dumped["piece layers"] = piece_layers.piece_layers
         dumped["info"]["file tree"] = piece_layers.file_tree.tree
         dumped["info"]["pieces"] = v1_pieces
