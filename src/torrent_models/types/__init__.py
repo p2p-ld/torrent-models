@@ -1,4 +1,11 @@
-from torrent_models.types.common import FileName, FilePart, TorrentVersion, TrackerFields
+from torrent_models.types.common import (
+    FileName,
+    FilePart,
+    SHA1Hash,
+    SHA256Hash,
+    TorrentVersion,
+    TrackerFields,
+)
 from torrent_models.types.serdes import (
     EXCLUDE_STRINGIFY,
     ByteStr,
@@ -30,6 +37,8 @@ __all__ = [
     "PieceLayerItem",
     "PieceLayersType",
     "Pieces",
+    "SHA1Hash",
+    "SHA256Hash",
     "TorrentVersion",
     "TrackerFields",
     "UnixDatetime",

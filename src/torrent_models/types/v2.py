@@ -2,18 +2,14 @@
 Types used only in v2 (and hybrid) torrents
 """
 
-import concurrent.futures
-import hashlib
 import multiprocessing as mp
-from collections import defaultdict, deque
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import cached_property
 from math import ceil
-from multiprocessing.pool import ApplyResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, NotRequired, TypeAlias, Union, cast, overload
+from typing import TYPE_CHECKING, Annotated, NotRequired, TypeAlias, Union, cast
 from typing import Literal as L
 
 from anyio import run
@@ -24,10 +20,16 @@ from typing_extensions import TypeAliasType, TypedDict
 
 from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE
-from torrent_models.types.common import _divisible_by_16kib, _power_of_two
+from torrent_models.types.common import (
+    AbsPath,
+    RelPath,
+    SHA256Hash,
+    _divisible_by_16kib,
+    _power_of_two,
+)
 
 if TYPE_CHECKING:
-    from torrent_models.hashing.base import Hash
+    pass
 
 V2PieceLength = Annotated[int, AfterValidator(_divisible_by_16kib), AfterValidator(_power_of_two)]
 """
@@ -60,8 +62,7 @@ FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
 )
 
 
-@dataclass
-class MerkleTree:
+class MerkleTree(BaseModel):
     """
     Representation and computation of v2 merkle trees
 
@@ -89,21 +90,19 @@ class MerkleTree:
         - https://www.bittorrent.org/beps/bep_0052_torrent_creator.py
     """
 
-    path: Path
+    path: AbsPath | None = None
     """Absolute path to file on filesystem"""
+    torrent_path: RelPath | None = None
+    """Path within torrent file"""
     piece_length: int
     """Piece length, in bytes"""
-    torrent_path: Path | None = None
-    """Path within torrent file"""
-    leaf_hashes: list[bytes] = field(default_factory=list)
-    """SHA256 hashes of 16KiB leaf segments"""
-    piece_hashes: list[bytes] = field(default_factory=list)
+    piece_hashes: list[SHA256Hash]
     """hashes of each piece (the nth later of the merkle tree, determined by piece length)"""
-    root_hash: bytes | None = None
+    root_hash: bytes
     """Root hash of the tree"""
-    n_processes: int = mp.cpu_count()
-    progress: bool = False
-    """Show progress"""
+
+    leaf_hashes: list[SHA256Hash] | None = None
+    """SHA256 hashes of 16KiB leaf segments, if present."""
 
     @classmethod
     def from_path(
@@ -126,183 +125,25 @@ class MerkleTree:
         _ = run(tree.hash_file, pool)
         return tree
 
-    @classmethod
-    def from_leaf_hashes(
-        cls, hashes: list["Hash"], base_path: Path, piece_length: int
-    ) -> Union[list["MerkleTree"], "MerkleTree"]:
-        """
-        Create from a collection of leaf hashes.
 
-        If leaf hashes from multiple paths are found, return a list of merkle trees.
+class MerkleTreeShape(BaseModel):
+    """
+    Helper class to calculate values when constructing a merkle tree,
+    without needing to have a merkle tree itself.
 
-        This method does *not* check that the trees are correct and complete -
-        it assumes that the collection of leaf hashes passed to it is already complete.
-        So e.g. it does not validate that the number of leaf hashes matches that which
-        would be expected given the file size.
+    Separated so that :class:`.MerkleTree` could just be a validated representation of the merkle tree
+    rather than being the thing that hashes one,
+    while also being able to validate the tree.
+    """
 
-        Args:
-            hashes (list[Hash]): collection of leaf hashes, from a single or multiple files
-            base_path (Path): the base path that contains the relative paths in the leaf hashes
-            piece_length (int): in bytes, you know what it is.
-        """
-
-        leaf_hashes = [h for h in hashes if h.type == "block"]
-        leaf_hashes = sorted(leaf_hashes, key=lambda h: (h.path, h.idx))
-        file_hashes = defaultdict(list)
-        for h in leaf_hashes:
-            file_hashes[h.path].append(h)
-
-        trees = []
-        for path, hashes in file_hashes.items():
-            # this is increasingly disturbing, clean this up
-            hash_bytes = [h.hash for h in hashes]
-            tree = MerkleTree(
-                path=base_path / path,
-                torrent_path=path,
-                piece_length=piece_length,
-                progress=False,
-                leaf_hashes=hash_bytes,
-            )
-            hash_bytes.extend([bytes(32)] * tree.n_pad_blocks)
-            tree.leaf_hashes = hash_bytes
-            tree.piece_hashes = tree.hash_pieces(hash_bytes)
-            tree.root_hash = tree.get_root_hash(tree.piece_hashes)
-            trees.append(tree)
-
-        if len(trees) == 1:
-            return trees[0]
-        return trees
-
-    async def hash_file(
-        self, pool: PoolType | None = None
-    ) -> tuple[list[bytes], list[bytes], bytes]:
-        """
-        Compute leaf hashes, then piece hashes, then root
-
-        Returns:
-            tuple: leaf_hashes, piece_hashes, root_hash
-        """
-
-        self.leaf_hashes = await self.hash_leaves(pool=pool)
-        self.piece_hashes = self.hash_pieces(leaf_hashes=self.leaf_hashes)
-        self.root_hash = self.get_root_hash(self.piece_hashes)
-
-        return self.leaf_hashes, self.piece_hashes, self.root_hash
-
-    async def hash_leaves(self, pool: PoolType | None = None) -> list[bytes]:
-        """Iterate through leaf blocks, hashing"""
-        from torrent_models.hashing.base import DummyPbar, PbarLike, iter_blocks
-
-        made_pool = False
-        if pool is None:
-            made_pool = True
-            pool = mp.Pool(processes=self.n_processes)
-
-        read_pbar: PbarLike
-        hash_pbar: PbarLike
-        if self.progress:
-            read_pbar = tqdm(total=self.n_blocks + self.n_pad_blocks, desc="Reading", position=1)
-            hash_pbar = tqdm(total=self.n_blocks + self.n_pad_blocks, desc="Hashing", position=2)
-        else:
-            read_pbar = DummyPbar(total=self.n_blocks, desc="Reading")
-            hash_pbar = DummyPbar(total=self.n_blocks, desc="Hashing")
-
-        results: deque[ApplyResult] = deque()
-        leaf_hashes = []
-
-        async for chunk in iter_blocks(self.path):
-            read_pbar.update(1)
-            results.append(pool.apply_async(self.hash_block, (chunk.chunk, chunk.idx)))
-
-            if len(results) == 0:
-                continue
-            res = results.popleft()
-            try:
-                leaf_hashes.append(res.get(timeout=0))
-                hash_pbar.update()
-            except mp.TimeoutError:
-                results.appendleft(res)
-
-        while len(results) > 0:
-            res = results.popleft()
-            leaf_hashes.append(res.get())
-            hash_pbar.update(1)
-
-        # if we made the pool, we close it
-        if made_pool:
-            pool.close()
-        read_pbar.close()
-        hash_pbar.close()
-
-        leaf_hashes = sorted(leaf_hashes, key=lambda leaf: leaf[1])
-        leaf_hashes = [leaf[0] for leaf in leaf_hashes]
-
-        # add padding "hashes" of all 0s to make leaf hashes divisible by pieces
-        leaf_hashes += [bytes(32)] * self.n_pad_blocks
-
-        self.leaf_hashes = leaf_hashes
-        return self.leaf_hashes
-
-    def hash_pieces(self, leaf_hashes: list[bytes] | None = None) -> list[bytes]:
-        """Compute the piece hashes for the layer dict"""
-        if self.n_pieces <= 1:
-            return []
-        if leaf_hashes is None and len(self.leaf_hashes) == 0:
-            raise ValueError("No precomputed leaf hashes and none passed!")
-        elif leaf_hashes is None:
-            leaf_hashes = self.leaf_hashes
-
-        self._validate_leaf_count(leaf_hashes)
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.n_processes) as executor:
-            piece_hashes = [
-                self.hash_root(leaf_hashes[idx : idx + self.blocks_per_piece], executor=executor)
-                for idx in range(0, len(leaf_hashes), self.blocks_per_piece)
-            ]
-        self.piece_hashes = piece_hashes
-        return self.piece_hashes
-
-    def get_root_hash(self, piece_hashes: list[bytes] | None = None) -> bytes:
-        """
-        Compute the root hash, including any zero-padding pieces needed to balance the tree.
-
-        If n_pieces == 0, the root hash is just the hash tree of the blocks,
-        padded with all-zero blocks to have enough blocks for a full piece
-        """
-        if self.n_pieces <= 1:
-            self._validate_leaf_count(self.leaf_hashes)
-            self.root_hash = self.hash_root(self.leaf_hashes)
-            return self.root_hash
-
-        if piece_hashes is None and len(self.piece_hashes) == 0:
-            raise ValueError("No precomputed piece hashes and none passed!")
-        elif piece_hashes is None:
-            piece_hashes = self.piece_hashes
-
-        if len(piece_hashes) == 1:
-            return piece_hashes[0]
-
-        if len(piece_hashes) == self.n_pieces and self.n_pad_pieces > 0:
-            pad_piece_hash = self.hash_root([bytes(32)] * self.blocks_per_piece)
-            piece_hashes = piece_hashes + ([pad_piece_hash] * self.n_pad_pieces)
-        elif len(piece_hashes) != self.n_pieces + self.n_pad_pieces:
-            raise ValueError(
-                f"Expected either {self.n_pieces} (unpadded) piece hashes or "
-                f"{self.n_pieces + self.n_pad_pieces} hashes "
-                f"(with padding for merkle tree balance). "
-                f"Got: {len(piece_hashes)}"
-            )
-
-        root_hash = self.hash_root(piece_hashes)
-        self.root_hash = root_hash
-        return root_hash
+    file_size: int
+    """size of the file for which the merkle tree would be calculated, in bytes"""
+    piece_length: V2PieceLength
+    """piece length of the merkle tree"""
 
     @property
     def blocks_per_piece(self) -> int:
         return self.piece_length // BLOCK_SIZE
-
-    @cached_property
-    def file_size(self) -> int:
-        return get_size(self.path)
 
     @cached_property
     def n_blocks(self) -> int:
@@ -320,12 +161,18 @@ class MerkleTree:
 
     @cached_property
     def n_pad_blocks(self) -> int:
-        """Number of blank blocks required to reach piece length"""
+        """
+        Number of blank blocks required for padding when hashing.
+
+        Not strictly equivalent to the remainder to the nearest piece size,
+        because we skip hashing all the zero blocks when we don't need to.
+        (e.g. when to balance the tree we need to compute a ton of empty piece hashes)
+        """
         if self.n_pieces <= 1:
             total_blocks = 1 << (self.n_blocks - 1).bit_length()
             return total_blocks - self.n_blocks
         else:
-            return self.n_blocks % self.blocks_per_piece
+            return self.blocks_per_piece - (self.n_blocks % self.blocks_per_piece)
 
     @cached_property
     def n_pad_pieces(self) -> int:
@@ -334,84 +181,20 @@ class MerkleTree:
             return 0
         return (1 << (self.n_pieces - 1).bit_length()) - self.n_pieces
 
-    @classmethod
-    @overload
-    def hash_block(cls, block: bytes, idx: int) -> tuple[bytes, int]: ...
-
-    @classmethod
-    @overload
-    def hash_block(cls, block: bytes) -> bytes: ...
-
-    @classmethod
-    def hash_block(cls, block: bytes, idx: int | None = None) -> bytes | tuple[bytes, int]:
-        hash = hashlib.sha256(block).digest()
-        if idx is not None:
-            return hash, idx
-        else:
-            return hash
-
-    @classmethod
-    async def hash_block_async(cls, block: bytes) -> bytes:
-        return cls.hash_block(block)
-
-    @classmethod
-    def hash_root(
-        cls,
-        hashes: list[bytes],
-        n_processes: int = mp.cpu_count(),
-        executor: concurrent.futures.ProcessPoolExecutor | None = None,
-    ) -> bytes:
-        """
-        Given hashes of 16KiB leaves, compute their root.
-        To compute the items in the piece layers dict,
-        pass piece_length / 16KiB leaf hashes at a time.
-
-        References:
-            - https://www.bittorrent.org/beps/bep_0052_torrent_creator.py
-        """
-        assert len(hashes) & (len(hashes) - 1) == 0
-
-        # if we are hashing a tiny amount of hashes, the process spawning overhead isn't worth it
-        if (len(hashes) < (n_processes * 100) or n_processes == 1) and not executor:
-            while len(hashes) > 1:
-                hashes = [
-                    hashlib.sha256(left + right).digest()
-                    for left, right in zip(*[iter(hashes)] * 2)
-                ]
-        else:
-            if executor:
-                while len(hashes) > 1:
-                    hashes = list(
-                        executor.map(
-                            cls.hash_block,
-                            [left + right for left, right in zip(*[iter(hashes)] * 2)],
-                        )
-                    )
-            else:
-                with concurrent.futures.ProcessPoolExecutor(max_workers=n_processes) as executor:
-                    while len(hashes) > 1:
-                        hashes = list(
-                            executor.map(
-                                cls.hash_block,
-                                [left + right for left, right in zip(*[iter(hashes)] * 2)],
-                            )
-                        )
-        return hashes[0]
-
-    def _validate_leaf_count(self, leaf_hashes: list[bytes]) -> None:
+    def validate_leaf_count(self, n_leaf_hashes: int) -> None:
         """Ensure that we have the right number of leaves for a merkle tree"""
         if self.n_pieces == 0:
             # ensure that n_blocks is a power of two
-            n = len(leaf_hashes)
+            n = n_leaf_hashes
             assert (n & (n - 1) == 0) and n != 0, (
                 "For files smaller than one piece, "
                 "must pad number of leaf blocks with zero blocks so n leaves is a power of two. "
-                f"Got {len(leaf_hashes)} leaf hashes with blocks_per_piece {self.blocks_per_piece}"
+                f"Got {n_leaf_hashes} leaf hashes with blocks_per_piece {self.blocks_per_piece}"
             )
         else:
-            assert len(leaf_hashes) % self.blocks_per_piece == 0, (
+            assert n_leaf_hashes % self.blocks_per_piece == 0, (
                 f"leaf hashes must be a multiple of blocks per piece, pad with zeros. "
-                f"Got {len(leaf_hashes)} leaf hashes with blocks_per_piece {self.blocks_per_piece}"
+                f"Got {n_leaf_hashes} leaf hashes with blocks_per_piece {self.blocks_per_piece}"
             )
 
 
