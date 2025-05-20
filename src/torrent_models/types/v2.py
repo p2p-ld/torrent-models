@@ -7,15 +7,12 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import cached_property
 from math import ceil
-from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, NotRequired, TypeAlias, Union, cast
+from typing import TYPE_CHECKING, Annotated, Any, NotRequired, TypeAlias, Union, cast
 from typing import Literal as L
 
-from anyio import run
 from pydantic import AfterValidator, BaseModel, PlainSerializer
 from pydantic_core.core_schema import SerializationInfo
-from tqdm.asyncio import tqdm
 from typing_extensions import TypeAliasType, TypedDict
 
 from torrent_models.compat import get_size
@@ -53,7 +50,7 @@ def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | l
 
 
 PieceLayerItem = Annotated[bytes, PlainSerializer(_serialize_v2_hash)]
-PieceLayersType = dict[PieceLayerItem, PieceLayerItem]
+PieceLayersType = dict[SHA256Hash, PieceLayerItem]
 FileTreeItem = TypedDict(
     "FileTreeItem", {"length": int, "pieces root": NotRequired[PieceLayerItem]}
 )
@@ -84,20 +81,22 @@ class MerkleTree(BaseModel):
       pad the *pieces hashes* with identical piece hashes each ``piece length`` long
       s.t. their leaf hashes are all zeros, as above.
 
-    These are separated because the padding added to the
+    These are separated to avoid computing hashes of zero's unnecessarily.
 
     References:
         - https://www.bittorrent.org/beps/bep_0052_torrent_creator.py
     """
 
-    path: AbsPath | None = None
-    """Absolute path to file on filesystem"""
-    torrent_path: RelPath | None = None
+    path: RelPath | None = None
     """Path within torrent file"""
     piece_length: int
     """Piece length, in bytes"""
-    piece_hashes: list[SHA256Hash]
-    """hashes of each piece (the nth later of the merkle tree, determined by piece length)"""
+    piece_hashes: list[SHA256Hash] | None
+    """
+    hashes of each piece (the nth later of the merkle tree, determined by piece length).
+    
+    When a file is smaller than a single piece, set explicitly to ``None``.
+    """
     root_hash: bytes
     """Root hash of the tree"""
 
@@ -108,22 +107,49 @@ class MerkleTree(BaseModel):
     def from_path(
         cls,
         path: Path,
-        piece_length: int,
+        piece_length: V2PieceLength,
+        path_root: AbsPath | None = None,
         n_processes: int = mp.cpu_count(),
         progress: bool = False,
-        pool: PoolType | None = None,
+        **kwargs: Any,
     ) -> "MerkleTree":
         """
         Create a MerkleTree and return it with computed hashes
+
+        Args:
+            path (Path): Relative path to a file within a torrent directory. If absolute,
+                must be beneath ``path_root``
+            piece_length (V2PieceLength): Piece length used for piece hashes
+            path_root (Path): Absolute path that should serve as the root of the torrent,
+                the `path` must be a relative or absolute path within it.
+            n_processes (int): Number of processes to use while hashing,
+                default is n_cpus
+            progress (bool): Display progress while hashing
+            kwargs: Passed to :class:`.V2Hasher`
+
         """
-        tree = MerkleTree(
-            path=path,
+        from torrent_models.hashing.v2 import V2Hasher
+
+        if path_root is None:
+            path_root = path.parent.resolve()
+        else:
+            assert path_root.is_absolute(), "Path root must be absolute"
+
+        if path.is_absolute():
+            path = path.relative_to(path_root)
+
+        hasher = V2Hasher(
+            paths=[path],
             piece_length=piece_length,
+            path_base=path_root,
             n_processes=n_processes,
             progress=progress,
+            **kwargs,
         )
-        _ = run(tree.hash_file, pool)
-        return tree
+        hashes = hasher.process()
+        trees = hasher.finish_trees(hashes)
+        assert len(trees) == 1, "Multiple trees returned from a single file constructor!"
+        return trees[0]
 
 
 class MerkleTreeShape(BaseModel):
@@ -131,7 +157,8 @@ class MerkleTreeShape(BaseModel):
     Helper class to calculate values when constructing a merkle tree,
     without needing to have a merkle tree itself.
 
-    Separated so that :class:`.MerkleTree` could just be a validated representation of the merkle tree
+    Separated so that :class:`.MerkleTree` could just be a
+    validated representation of the merkle tree
     rather than being the thing that hashes one,
     while also being able to validate the tree.
     """
@@ -251,23 +278,12 @@ class FileTree(BaseModel):
         return cls(tree=cls.unflatten_tree(tree))
 
     @classmethod
-    def from_trees(cls, trees: list[MerkleTree], base_path: Path | None = None) -> "FileTree":
+    def from_trees(cls, trees: list[MerkleTree], base_path: Path) -> "FileTree":
         flat = {}
         for tree in trees:
-            if tree.torrent_path:
-                # tree already knows its relative directory, use that
-                rel_path = tree.torrent_path
-            else:
-                if base_path is None:
-                    raise ValueError(
-                        f"Merkle tree for {tree.path} does not have a torrent_path set,"
-                        f"and no base_path was provided."
-                        f"Unsure what relative path should go in a torrent file."
-                    )
-                rel_path = tree.path.relative_to(base_path)
             tree.root_hash = cast(bytes, tree.root_hash)
-            flat[rel_path.as_posix()] = FileTreeItem(
-                **{"pieces root": tree.root_hash, "length": get_size(tree.path)}
+            flat[tree.path.as_posix()] = FileTreeItem(
+                **{"pieces root": tree.root_hash, "length": get_size(base_path / tree.path)}
             )
         return cls.from_flat(flat)
 
@@ -328,14 +344,12 @@ class PieceLayers:
 
     piece_length: int
     """piece length (hash piece_length/16KiB blocks per piece hash)"""
-    piece_layers: dict[bytes, bytes]
+    piece_layers: PieceLayersType
     """piece layers: mapping from root hash to concatenated piece hashes"""
     file_tree: FileTree
 
     @classmethod
-    def from_trees(
-        cls, trees: list[MerkleTree] | MerkleTree, base_path: Path | None = None
-    ) -> "PieceLayers":
+    def from_trees(cls, trees: list[MerkleTree] | MerkleTree, base_path: Path) -> "PieceLayers":
         if not isinstance(trees, list):
             trees = [trees]
         lengths = [t.piece_length for t in trees]
@@ -344,11 +358,9 @@ class PieceLayers:
         ), "Differing piece lengths in supplied merkle trees!"
         piece_length = lengths[0]
         piece_layers = {
-            tree.root_hash: b"".join(tree.piece_hashes)
-            for tree in trees
-            if tree.piece_hashes and tree.root_hash is not None
+            tree.root_hash: b"".join(tree.piece_hashes) for tree in trees if tree.piece_hashes
         }
-        file_tree = FileTree.from_trees(trees)
+        file_tree = FileTree.from_trees(trees, base_path)
         return PieceLayers(
             piece_length=piece_length, piece_layers=piece_layers, file_tree=file_tree
         )
@@ -356,56 +368,36 @@ class PieceLayers:
     @classmethod
     def from_paths(
         cls,
-        paths: list[Path],
+        paths: list[RelPath],
         piece_length: int,
-        path_root: Path | None = None,
+        path_root: Path,
         n_processes: int = mp.cpu_count(),
         progress: bool = False,
+        **kwargs: Any,
     ) -> "PieceLayers":
         """
         Hash all the paths, construct the piece layers and file tree
+
+        Args:
+            paths (list[Path]): List of relative paths within some path root
+            piece_length (V2PieceLength): piece length valid for v2 torrents
+            path_root (Path): Root directory that contains ``paths``
+            n_processes (int): number of processes to use for parallel processing.
+                Default is n_cpus
+            progress (bool): Display progress while hashing
+            kwargs: passed to :class:`.V2Hasher`
+
         """
-        from torrent_models.hashing.base import DummyPbar, PbarLike
+        from torrent_models.hashing.v2 import V2Hasher
 
-        if path_root is None:
-            path_root = Path.cwd()
-
-        file_pbar: PbarLike
-        if progress:
-            file_pbar = tqdm(total=len(paths), desc="Hashing files...", position=0)
-        else:
-            file_pbar = DummyPbar()
-
-        piece_layers = {}
-        file_tree = {}
-        pool = mp.Pool(processes=n_processes)
-        for path in paths:
-            file_pbar.set_description(f"Hashing {path}")
-            if path.is_absolute():
-                raise ValueError(
-                    f"Got absolute path {path}, "
-                    f"paths must be relative unless you want to put the whole filesystem "
-                    f"in a torrent. (don't put the whole filesystem in a torrent)."
-                )
-            abs_path = path_root / path
-            tree = MerkleTree.from_path(
-                path=abs_path, piece_length=piece_length, pool=pool, progress=progress
-            )
-            tree.root_hash = cast(bytes, tree.root_hash)
-            file_tree[path.as_posix()] = FileTreeItem(
-                **{"pieces root": tree.root_hash, "length": get_size(abs_path)}
-            )
-            if tree.piece_hashes:
-                piece_layers[tree.root_hash] = b"".join(tree.piece_hashes)
-            file_pbar.update()
-
-        file_tree = FileTree.from_flat(file_tree)
-        piece_layers = piece_layers
-
-        file_pbar.close()
-        pool.close()
-        return PieceLayers(
+        hasher = V2Hasher(
+            paths=paths,
+            path_base=path_root,
             piece_length=piece_length,
-            file_tree=file_tree,
-            piece_layers=piece_layers,
+            n_processes=n_processes,
+            progress=progress,
+            **kwargs,
         )
+        hashes = hasher.process()
+        trees = hasher.finish_trees(hashes)
+        return cls.from_trees(trees, base_path=path_root)

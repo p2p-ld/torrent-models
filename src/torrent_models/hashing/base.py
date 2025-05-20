@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import multiprocessing as mp
 from abc import abstractmethod
@@ -12,14 +13,13 @@ from pathlib import Path
 from typing import Any, TypeAlias, overload
 from typing import Literal as L
 
-from anyio import open_file, run
+from anyio import open_file
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE
-from torrent_models.types.v1 import V1PieceLength
-from torrent_models.types.v2 import V2PieceLength
+from torrent_models.types import AbsPath, RelPath, V1PieceLength, V2PieceLength
 
 
 class Chunk(BaseModel):
@@ -61,13 +61,13 @@ async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator
 
 
 class HasherBase(BaseModel):
-    paths: list[Path]
+    paths: list[RelPath]
     """
     Relative paths beneath the path base to hash.
     
     Paths should already be sorted in the order they are to appear in the torrent
     """
-    path_base: Path
+    path_base: AbsPath
     """Directory containing paths to hash"""
     piece_length: V1PieceLength | V2PieceLength
     n_processes: int = Field(default_factory=mp.cpu_count)
@@ -83,19 +83,21 @@ class HasherBase(BaseModel):
     the number of outstanding chunks to process are smaller than this size
     """
 
-    def _hash_v1(self, chunk: Chunk) -> Hash:
+    @staticmethod
+    def _hash_v1(chunk: Chunk, path_base: Path) -> Hash:
         return Hash.model_construct(
             hash=hashlib.sha1(chunk.chunk).digest(),
             type="v1_piece",
-            path=chunk.path.relative_to(self.path_base),
+            path=chunk.path.relative_to(path_base),
             idx=chunk.idx,
         )
 
-    def _hash_v2(self, chunk: Chunk) -> Hash:
+    @staticmethod
+    def _hash_v2(chunk: Chunk, path_base: Path) -> Hash:
         return Hash.model_construct(
             hash=hashlib.sha256(chunk.chunk).digest(),
             type="block",
-            path=chunk.path.relative_to(self.path_base),
+            path=chunk.path.relative_to(path_base),
             idx=chunk.idx,
         )
 
@@ -140,7 +142,7 @@ class HasherBase(BaseModel):
         return self.complete(hashes)
 
     def process(self) -> list[Hash]:
-        return run(self.process_async)
+        return asyncio.run(self.process_async())
 
     async def hash(self) -> list[Hash]:
         """

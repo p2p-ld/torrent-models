@@ -20,12 +20,14 @@ from pathlib import Path
 from typing import Annotated, cast
 
 from annotated_types import Interval
-from pydantic import PrivateAttr
+from pydantic import PrivateAttr, field_validator
 
 from torrent_models.const import BLOCK_SIZE
-from torrent_models.hashing.base import Chunk, Hash, HasherBase
+from torrent_models.hashing.base import Chunk, Hash
+from torrent_models.hashing.v1 import V1Hasher
+from torrent_models.hashing.v2 import V2Hasher, sort_v2
 from torrent_models.types.v1 import FileItem
-from torrent_models.types.v2 import MerkleTree, PieceLayers, V2PieceLength
+from torrent_models.types.v2 import PieceLayers, V2PieceLength
 
 
 def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
@@ -44,7 +46,7 @@ def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
     return padded
 
 
-class HybridHasher(HasherBase):
+class HybridHasher(V1Hasher, V2Hasher):
     piece_length: V2PieceLength
     read_size: Annotated[int, Interval(le=BLOCK_SIZE, ge=BLOCK_SIZE)] = BLOCK_SIZE
     """
@@ -57,12 +59,21 @@ class HybridHasher(HasherBase):
     _last_path: Path | None = None
     _v1_counter: count = PrivateAttr(default_factory=count)
 
+    @field_validator("paths", mode="after")
+    def sort_paths(cls, value: list[Path]) -> list[Path]:
+        """
+        v1 torrents have arbitrary file sorting,
+        but we mimick libtorrent/qbittorrent's sort order for consistency's sake
+        """
+        value = sort_v2(value)
+        return value
+
     @cached_property
     def blocks_per_piece(self) -> int:
         return int(self.piece_length / BLOCK_SIZE)
 
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
-        res = [pool.apply_async(self._hash_v2, args=(chunk,))]
+        res = [pool.apply_async(self._hash_v2, args=(chunk, self.path_base))]
 
         # gather v1 pieces until we have blocks_per_piece or reach the end of a file
         if (
@@ -91,7 +102,7 @@ class HybridHasher(HasherBase):
         self._last_path = cast(Path, self._last_path)
         piece = b"".join([piece, bytes(self.piece_length - len(piece))])
         chunk = Chunk.model_construct(idx=next(self._v1_counter), path=self._last_path, chunk=piece)
-        return pool.apply_async(self._hash_v1, args=(chunk,))
+        return pool.apply_async(self._hash_v1, args=(chunk, self.path_base))
 
     def _after_read(self, pool: PoolType) -> list[AsyncResult]:
         """Submit any remaining v1 pieces from the last file"""
@@ -111,6 +122,6 @@ class HybridHasher(HasherBase):
         v1_pieces = [h.hash for h in v1_pieces]
 
         v2_leaf_hashes = [h for h in hashes if h.type == "block"]
-        trees = MerkleTree.from_leaf_hashes(v2_leaf_hashes, self.path_base, self.piece_length)
-        layers = PieceLayers.from_trees(trees)
+        trees = self.finish_trees(v2_leaf_hashes)
+        layers = PieceLayers.from_trees(trees, self.path_base)
         return layers, v1_pieces

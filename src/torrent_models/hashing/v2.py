@@ -2,7 +2,10 @@ import hashlib
 from collections import defaultdict
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
+from pathlib import Path
+from typing import Annotated
 
+from annotated_types import Interval
 from pydantic import field_validator
 
 from torrent_models.compat import get_size
@@ -14,29 +17,34 @@ from torrent_models.types.v2 import MerkleTree, MerkleTreeShape, V2PieceLength
 
 class V2Hasher(HasherBase):
     piece_length: V2PieceLength
+    read_size: Annotated[int, Interval(le=BLOCK_SIZE, ge=BLOCK_SIZE)] = BLOCK_SIZE
+    """
+    How much of a file should be read in a single read call.
 
+    For now the hybrid and v2 hashers must read single blocks at a time.
+    """
+
+    @classmethod
     @field_validator("read_size", mode="after")
-    def read_size_is_block_size(self, value: int) -> int:
+    def read_size_is_block_size(cls, value: int) -> int:
         assert value == BLOCK_SIZE
         return value
 
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
-        return [pool.apply_async(self._hash_v2, (chunk,))]
+        return [pool.apply_async(self._hash_v2, (chunk, self.path_base))]
 
     @classmethod
     def hash_root(
         cls,
-        hashes: list[bytes],
+        hashes: list[SHA256Hash],
     ) -> bytes:
         """
-        Given hashes of 16KiB leaves, compute their root.
-        To compute the items in the piece layers dict,
-        pass piece_length / 16KiB leaf hashes at a time.
+        Given hashes within a v2 merkle tree, compute their root.
 
         References:
             - https://www.bittorrent.org/beps/bep_0052_torrent_creator.py
         """
-        assert len(hashes) & (len(hashes) - 1) == 0
+        assert len(hashes) & (len(hashes) - 1) == 0, "Must pass a balanced number of pieces"
 
         while len(hashes) > 1:
             hashes = [
@@ -71,20 +79,30 @@ class V2Hasher(HasherBase):
             shape = MerkleTreeShape(file_size=file_size, piece_length=self.piece_length)
             hash_bytes = [h.hash for h in hashes]
             if len(hash_bytes) < shape.n_blocks + shape.n_pad_blocks:
-                leaf_hashes += [bytes(32)] * shape.n_pad_blocks
+                hash_bytes += [bytes(32)] * shape.n_pad_blocks
 
-            piece_hashes = self.hash_pieces(hash_bytes)
-            tree.root_hash = tree.get_root_hash(tree.piece_hashes)
+            piece_hashes = self.hash_pieces(hash_bytes, shape)
+            if piece_hashes is None:
+                root_hash = self.get_root_hash(hash_bytes, shape)
+            else:
+                root_hash = self.get_root_hash(piece_hashes, shape)
+
+            tree = MerkleTree(
+                path=path,
+                piece_length=self.piece_length,
+                leaf_hashes=hash_bytes,
+                piece_hashes=piece_hashes,
+                root_hash=root_hash,
+            )
             trees.append(tree)
-
-        if len(trees) == 1:
-            return trees[0]
         return trees
 
-    def hash_pieces(self, leaf_hashes: list[SHA256Hash], shape: MerkleTreeShape) -> list[bytes]:
+    def hash_pieces(
+        self, leaf_hashes: list[SHA256Hash], shape: MerkleTreeShape
+    ) -> list[bytes] | None:
         """Compute the piece hashes for the layer dict"""
         if shape.n_pieces <= 1:
-            return []
+            return None
 
         shape.validate_leaf_count(len(leaf_hashes))
         # with concurrent.futures.ProcessPoolExecutor(max_workers=self.n_processes) as executor:
@@ -99,36 +117,36 @@ class V2Hasher(HasherBase):
         Compute the root hash, including any zero-padding pieces needed to balance the tree.
 
         If n_pieces == 0, the root hash is just the hash tree of the blocks,
-        padded with all-zero blocks to have enough blocks for a full piece
+        padded with all-zero blocks to have enough blocks for a full piece.
+
+        So if `shape.n_pieces == 0`, then the hashes passed in should be the
+        *leaf hashes* (since there are no piece hashes)
         """
         if shape.n_pieces <= 1:
-            shape.validate_leaf_count(self.leaf_hashes)
-            self.root_hash = self.hash_root(self.leaf_hashes)
-            return self.root_hash
-
-        if piece_hashes is None and len(self.piece_hashes) == 0:
-            raise ValueError("No precomputed piece hashes and none passed!")
-        elif piece_hashes is None:
-            piece_hashes = self.piece_hashes
+            return self.hash_root(piece_hashes)
 
         if len(piece_hashes) == 1:
             return piece_hashes[0]
 
-        if len(piece_hashes) == self.n_pieces and self.n_pad_pieces > 0:
-            pad_piece_hash = self.hash_root([bytes(32)] * self.blocks_per_piece)
-            piece_hashes = piece_hashes + ([pad_piece_hash] * self.n_pad_pieces)
-        elif len(piece_hashes) != self.n_pieces + self.n_pad_pieces:
+        if len(piece_hashes) == shape.n_pieces and shape.n_pad_pieces > 0:
+            pad_piece_hash = self.hash_root([bytes(32)] * shape.blocks_per_piece)
+            piece_hashes = piece_hashes + ([pad_piece_hash] * shape.n_pad_pieces)
+        elif len(piece_hashes) != shape.n_pieces + shape.n_pad_pieces:
             raise ValueError(
-                f"Expected either {self.n_pieces} (unpadded) piece hashes or "
-                f"{self.n_pieces + self.n_pad_pieces} hashes "
+                f"Expected either {shape.n_pieces} (unpadded) piece hashes or "
+                f"{shape.n_pieces + shape.n_pad_pieces} hashes "
                 f"(with padding for merkle tree balance). "
                 f"Got: {len(piece_hashes)}"
             )
 
-        root_hash = self.hash_root(piece_hashes)
-        self.root_hash = root_hash
-        return root_hash
+        return self.hash_root(piece_hashes)
 
-    @cached_property
-    def file_size(self) -> int:
-        return get_size(self.path)
+
+def sort_v2(paths: list[Path]) -> list[Path]:
+    """
+    V2 paths are sorted in tree order, alphabetically.
+
+    Mostly important for hybrid torrents, because v2 file trees are intrinsically sorted
+    by the bencoding format
+    """
+    return sorted(paths, key=lambda f: f.as_posix())

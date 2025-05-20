@@ -1,6 +1,8 @@
 from torrent_models.types.common import (
+    AbsPath,
     FileName,
     FilePart,
+    RelPath,
     SHA1Hash,
     SHA256Hash,
     TorrentVersion,
@@ -26,6 +28,7 @@ from torrent_models.types.v2 import (
 
 __all__ = [
     "EXCLUDE_STRINGIFY",
+    "AbsPath",
     "ByteStr",
     "ByteUrl",
     "FileItem",
@@ -37,6 +40,7 @@ __all__ = [
     "PieceLayerItem",
     "PieceLayersType",
     "Pieces",
+    "RelPath",
     "SHA1Hash",
     "SHA256Hash",
     "TorrentVersion",

@@ -8,15 +8,15 @@ at the top level, rather than nested within the infodict.
 
 import multiprocessing as mp
 from pathlib import Path
-from typing import Self, cast
+from typing import Any, Self, cast
 
 from pydantic import AnyUrl, Field, model_validator
 
 from torrent_models import Torrent, TorrentVersion
 from torrent_models.compat import get_size
 from torrent_models.const import EXCLUDE_FILES
-from torrent_models.hashing.hybrid import HybridHasher, add_padfiles
-from torrent_models.hashing.v1 import hash_pieces
+from torrent_models.hashing import HybridHasher, V1Hasher, add_padfiles
+from torrent_models.hashing.v1 import sort_v1
 from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
 from torrent_models.torrent import TorrentBase
 from torrent_models.types import FileItem, TrackerFields, V1PieceLength, V2PieceLength
@@ -169,7 +169,7 @@ class TorrentCreate(TorrentBase):
         dumped.update(self.get_trackers())
         return dumped
 
-    def _generate_v1(self, n_processes: int, progress: bool = False) -> Torrent:
+    def _generate_v1(self, n_processes: int, progress: bool = False, **kwargs: Any) -> Torrent:
         dumped = self._generate_common()
 
         file_items, files = self._get_v1_paths(v1_only=True)
@@ -178,13 +178,17 @@ class TorrentCreate(TorrentBase):
             dumped["info"]["files"] = file_items
 
         if "pieces" not in dumped["info"]:
-            dumped["info"]["pieces"] = hash_pieces(
-                files,
-                piece_length=dumped["info"]["piece_length"],
-                path_root=self.path_root,
-                progress=progress,
+            hasher = V1Hasher(
+                paths=files,
+                piece_length=self._get_piece_length(),
+                path_base=self.path_root,
                 n_processes=n_processes,
+                progress=progress,
+                **kwargs,
             )
+            hashes = hasher.process()
+            hashes = [hash.hash for hash in sorted(hashes, key=lambda x: x.idx)]
+            dumped["info"]["pieces"] = hashes
 
         info = InfoDictV1(**dumped["info"])
         del dumped["info"]
@@ -371,14 +375,6 @@ def list_files(path: Path | str) -> list[Path]:
     paths = list(path.rglob("*"))
 
     return clean_files(paths, path)
-
-
-def sort_v1(paths: list[Path]) -> list[Path]:
-    """
-    v1 sorts top-level files first, then within that division alphabetically
-    https://github.com/alanmcgovern/monotorrent/issues/563
-    """
-    return sorted(paths, key=lambda path: (len(path.parts) != 1, str(path).lower()))
 
 
 def clean_files(paths: list[Path], relative_to: Path, v1: bool = False) -> list[Path]:
