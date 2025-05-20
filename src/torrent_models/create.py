@@ -78,18 +78,6 @@ class TorrentCreate(TorrentBase):
     )
 
     @model_validator(mode="after")
-    def files_xor_info_files(self) -> Self:
-        """Can only specify convenience file field or fill the file field in the infodict"""
-        files_in_info = self.info.files is not None or self.info.length is not None
-        assert (
-            bool(self.paths) or files_in_info
-        ), "Must specify files either in `paths` or in `info`"
-        assert (
-            bool(self.paths) != files_in_info
-        ), "Can only pass the top-level files field OR the files list/length in the infodict"
-        return self
-
-    @model_validator(mode="after")
     def no_duplicated_params(self) -> Self:
         """
         Ensure that values that can be set from the top level convenience fields aren't doubly set,
@@ -172,15 +160,17 @@ class TorrentCreate(TorrentBase):
     def _generate_v1(self, n_processes: int, progress: bool = False, **kwargs: Any) -> Torrent:
         dumped = self._generate_common()
 
-        file_items, files = self._get_v1_paths(v1_only=True)
+        paths = self.get_paths(clean=True, v1_order=True)
+        file_items = self._get_v1_file_items(paths)
 
         if not self.info.files:
             dumped["info"]["files"] = file_items
 
         if "pieces" not in dumped["info"]:
             hasher = V1Hasher(
-                paths=files,
+                paths=paths,
                 piece_length=self._get_piece_length(),
+                read_size=self._get_piece_length(),
                 path_root=self.path_root,
                 n_processes=n_processes,
                 progress=progress,
@@ -189,20 +179,13 @@ class TorrentCreate(TorrentBase):
             hashes = hasher.process()
             hashes = [hash.hash for hash in sorted(hashes, key=lambda x: x.idx)]
             dumped["info"]["pieces"] = hashes
-
         info = InfoDictV1(**dumped["info"])
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
     def _generate_v2(self, n_processes: int, progress: bool = False) -> Torrent:
         dumped = self._generate_common()
-        if self.paths:
-            paths = clean_files(self.paths, relative_to=self.path_root)
-        else:
-            # remake with new hashes
-            # paths within the file tree should already be relative, no need to fix them
-            assert self.info.file_tree is not None, "No top-level paths or infodict file_tree found"
-            paths = [Path(path) for path in FileTree.flatten_tree(self.info.file_tree)]
+        paths = self.get_paths(clean=True, v1_order=False)
 
         if "piece_layers" not in dumped or "file_tree" not in dumped["info"]:
             piece_layers = PieceLayers.from_paths(
@@ -223,12 +206,11 @@ class TorrentCreate(TorrentBase):
         dumped = self._generate_common()
 
         # Gather paths
-        if self.paths:
-            paths = clean_files(self.paths, relative_to=self.path_root)
-            v1_items, _ = self._get_v1_paths(paths)
-        elif (self.info.files or self.info.length) and self.info.file_tree:
+
+        if (self.info.files or self.info.length) and self.info.file_tree:
             # check for inconsistent paths in v1 and v2 if both are present
-            v1_items, v1_paths = self._get_v1_paths()
+            v1_paths = self._get_v1_paths()
+            v1_items = self._get_v1_file_items(v1_paths)
             v2_paths = [Path(path) for path in FileTree.flatten_tree(self.info.file_tree)]
             if not len(v1_paths) == len(v2_paths) and not all(
                 [v1p == v2p for v1p, v2p in zip(v1_paths, v2_paths)]
@@ -237,17 +219,10 @@ class TorrentCreate(TorrentBase):
                     "Both v1 files and v2 file tree present, but have inconsistent paths!"
                 )
             paths = v2_paths
-        elif self.info.files or self.info.length:
-            # v1 files
-            v1_items, paths = self._get_v1_paths()
-        elif self.info.file_tree:
-            # v2 file tree
-            paths = [Path(path) for path in FileTree.flatten_tree(self.info.file_tree)]
-            v1_items, _ = self._get_v1_paths(paths)
         else:
-            raise ValueError(
-                ".paths, v1 paths, and v2 paths were not specified! " "nothing in this torrent!"
-            )
+            paths = self.get_paths(clean=True, v1_order=False)
+            # v1 files
+            v1_items = self._get_v1_file_items(paths)
 
         # add padding to the v1 files
         v1_items = add_padfiles(v1_items, dumped["info"]["piece_length"])
@@ -256,6 +231,7 @@ class TorrentCreate(TorrentBase):
             paths=paths,
             path_root=self.path_root,
             piece_length=self.piece_length,
+            read_size=self.piece_length,
             n_processes=n_processes,
             progress=progress,
         )
@@ -265,7 +241,7 @@ class TorrentCreate(TorrentBase):
         dumped["info"]["file tree"] = piece_layers.file_tree.tree
         dumped["info"]["pieces"] = v1_pieces
         if len(v1_items) == 1:
-            dumped["info"]["name"] = v1_items[0].path
+            dumped["info"]["name"] = v1_items[0].path[-1]
             dumped["info"]["length"] = v1_items[0].length
         else:
             dumped["info"]["files"] = v1_items
@@ -282,7 +258,8 @@ class TorrentCreate(TorrentBase):
         - paths set in top level `paths` field
         - v2 file tree, if present
         - v1 `files`, if present
-        - v1 `name`, otherwise
+        - v1 `name`, if present with `length` set
+        - iterate the files beneath the :attr:`.path_root`
 
         Args:
             clean (bool): clean and sort the files
@@ -297,16 +274,20 @@ class TorrentCreate(TorrentBase):
             assert tree is not None
             paths = [Path(t) for t in tree]
         else:
-            _, paths = self._get_v1_paths()
-            return paths
+            try:
+                paths = self._get_v1_paths()
+            except ValueError:
+                # no V1 paths, get files beneath base-path
+                paths = list(self.path_root.rglob("*"))
+
+        if not paths:
+            raise ValueError("No paths provided, and nothing found within path root!")
 
         if clean:
             paths = clean_files(paths, relative_to=self.path_root, v1=v1_order)
         return paths
 
-    def _get_v1_paths(
-        self, paths: list[Path] | None = None, v1_only: bool = False
-    ) -> tuple[list[FileItem], list[Path]]:
+    def _get_v1_paths(self, paths: list[Path] | None = None, v1_only: bool = False) -> list[Path]:
         if paths:
             files = paths
         elif self.paths:
@@ -319,9 +300,11 @@ class TorrentCreate(TorrentBase):
             raise ValueError("paths not provided, and info.files and info.length are unset!")
 
         files = clean_files(files, relative_to=self.path_root, v1=v1_only)
+        return files
 
-        items = [FileItem(path=list(f.parts), length=get_size(self.path_root / f)) for f in files]
-        return items, files
+    def _get_v1_file_items(self, paths: list[Path]) -> list[FileItem]:
+        items = [FileItem(path=list(f.parts), length=get_size(self.path_root / f)) for f in paths]
+        return items
 
     def get_trackers(
         self,

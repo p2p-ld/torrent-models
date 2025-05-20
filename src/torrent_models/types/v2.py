@@ -87,7 +87,7 @@ class MerkleTree(BaseModel):
         - https://www.bittorrent.org/beps/bep_0052_torrent_creator.py
     """
 
-    path: RelPath | None = None
+    path: RelPath
     """Path within torrent file"""
     piece_length: int
     """Piece length, in bytes"""
@@ -198,8 +198,10 @@ class MerkleTreeShape(BaseModel):
         if self.n_pieces <= 1:
             total_blocks = 1 << (self.n_blocks - 1).bit_length()
             return total_blocks - self.n_blocks
+        elif (remainder := self.n_blocks % self.blocks_per_piece) == 0:
+            return 0
         else:
-            return self.blocks_per_piece - (self.n_blocks % self.blocks_per_piece)
+            return self.blocks_per_piece - remainder
 
     @cached_property
     def n_pad_pieces(self) -> int:
@@ -281,7 +283,6 @@ class FileTree(BaseModel):
     def from_trees(cls, trees: list[MerkleTree], base_path: Path) -> "FileTree":
         flat = {}
         for tree in trees:
-            tree.root_hash = cast(bytes, tree.root_hash)
             flat[tree.path.as_posix()] = FileTreeItem(
                 **{"pieces root": tree.root_hash, "length": get_size(base_path / tree.path)}
             )

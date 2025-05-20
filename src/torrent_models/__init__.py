@@ -1,4 +1,4 @@
-from torrent_models.const import BLOCK_SIZE, DEFAULT_TORRENT_CREATOR, GiB, KiB, MiB, TiB
+from torrent_models.const import BLOCK_SIZE, DEFAULT_TORRENT_CREATOR, GiB, KiB, MiB, TiB, size
 from torrent_models.types import (
     FileItem,
     FileTree,
@@ -59,4 +59,5 @@ __all__ = [
     "TorrentVersion",
     "V1PieceLength",
     "V2PieceLength",
+    "size",
 ]

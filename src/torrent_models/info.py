@@ -45,6 +45,9 @@ class InfoDictV1Base(InfoDictRoot):
     @property
     def total_length(self) -> int:
         """Total length of all files, in bytes"""
+        return self._total_length_v1()
+
+    def _total_length_v1(self) -> int:
         if self._total_length is None:
             total = 0
             if not self.files:
@@ -192,7 +195,7 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
 
         assert n_pieces == len(self.pieces), (
             f"Expected {n_pieces} pieces for torrent with "
-            f"total length {self.total_length} and piece_length"
+            f"total length {self._total_length_v1()} and piece_length"
             f"{self.piece_length}. "
             f"Got {len(self.pieces)}"
         )

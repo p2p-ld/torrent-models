@@ -17,9 +17,8 @@ from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Annotated, cast
+from typing import cast
 
-from annotated_types import Interval
 from pydantic import PrivateAttr, field_validator
 
 from torrent_models.const import BLOCK_SIZE
@@ -48,12 +47,7 @@ def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
 
 class HybridHasher(V1Hasher, V2Hasher):
     piece_length: V2PieceLength
-    read_size: Annotated[int, Interval(le=BLOCK_SIZE, ge=BLOCK_SIZE)] = BLOCK_SIZE
-    """
-    How much of a file should be read in a single read call.
-    
-    For now the hybrid and v2 hashers must read single blocks at a time.
-    """
+    read_size: V2PieceLength
 
     _v1_chunks: list[Chunk] = PrivateAttr(default_factory=list)
     _last_path: Path | None = None
@@ -72,28 +66,27 @@ class HybridHasher(V1Hasher, V2Hasher):
     def blocks_per_piece(self) -> int:
         return int(self.piece_length / BLOCK_SIZE)
 
+    @cached_property
+    def total_hashes(self) -> int:
+        return self._v2_total_hashes() + self._v1_total_hashes_hybrid()
+
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
-        res = [pool.apply_async(self._hash_v2, args=(chunk, self.path_root))]
-
-        # gather v1 pieces until we have blocks_per_piece or reach the end of a file
-        if (
-            self._last_path is not None
-            and chunk.path != self._last_path
-            and len(self._v1_chunks) > 0
-        ):
-            # just got a piece from the next file
-            # if we didn't have a perfectly sized file, pad it and submit hashes
-
-            res.append(self._submit_v1(pool))
-            self._v1_chunks = []
-
-        self._v1_chunks.append(chunk)
-        self._last_path = chunk.path
-        if len(self._v1_chunks) == self.blocks_per_piece:
-            res.append(self._submit_v1(pool))
-            self._v1_chunks = []
-
+        res = self._update_v2(chunk, pool)
+        res.extend(self._update_v1(chunk, pool))
         return res
+
+    def _on_file_end(self, pool: PoolType) -> list[AsyncResult]:
+        """Pad and submit buffer"""
+        # breakpoint()
+        if len(self._buffer) == 0:
+            return []
+        self._buffer.extend(bytes(self.piece_length - len(self._buffer)))
+        self._last_path = cast(Path, self._last_path)
+        chunk = Chunk.model_construct(
+            idx=next(self._v1_counter), path=self._last_path, chunk=bytes(self._buffer)
+        )
+        self._buffer = bytearray()
+        return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]
 
     def _submit_v1(self, pool: PoolType) -> AsyncResult:
         piece = b"".join([c.chunk for c in self._v1_chunks])
@@ -106,10 +99,7 @@ class HybridHasher(V1Hasher, V2Hasher):
 
     def _after_read(self, pool: PoolType) -> list[AsyncResult]:
         """Submit any remaining v1 pieces from the last file"""
-        res = []
-        if len(self._v1_chunks) > 0:
-            res.append(self._submit_v1(pool))
-            self._v1_chunks = []
+        res = self._on_file_end(pool)
         return res
 
     def split_v1_v2(

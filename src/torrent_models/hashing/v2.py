@@ -1,12 +1,12 @@
 import hashlib
 from collections import defaultdict
+from functools import cached_property
+from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Annotated
 
-from annotated_types import Interval
-from pydantic import field_validator
+from pydantic import PrivateAttr, field_validator
 
 from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE
@@ -17,12 +17,9 @@ from torrent_models.types.v2 import MerkleTree, MerkleTreeShape, V2PieceLength
 
 class V2Hasher(HasherBase):
     piece_length: V2PieceLength
-    read_size: Annotated[int, Interval(le=BLOCK_SIZE, ge=BLOCK_SIZE)] = BLOCK_SIZE
-    """
-    How much of a file should be read in a single read call.
+    read_size: V2PieceLength
 
-    For now the hybrid and v2 hashers must read single blocks at a time.
-    """
+    _v2_counter: count = PrivateAttr(default_factory=count)
 
     @classmethod
     @field_validator("read_size", mode="after")
@@ -30,8 +27,21 @@ class V2Hasher(HasherBase):
         assert value == BLOCK_SIZE
         return value
 
+    def _update_v2(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+        chunks = [
+            Chunk.model_construct(
+                path=chunk.path, chunk=chunk.chunk[i : i + BLOCK_SIZE], idx=next(self._v2_counter)
+            )
+            for i in range(0, len(chunk.chunk), BLOCK_SIZE)
+        ]
+        return [pool.apply_async(self._hash_v2, (c, self.path_root)) for c in chunks]
+
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
-        return [pool.apply_async(self._hash_v2, (chunk, self.path_root))]
+        return self._update_v2(chunk, pool)
+
+    @cached_property
+    def total_hashes(self) -> int:
+        return self._v2_total_hashes()
 
     @classmethod
     def hash_root(

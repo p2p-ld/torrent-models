@@ -1,8 +1,9 @@
+from functools import cached_property
 from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pydantic import PrivateAttr, ValidationInfo, field_validator
 
@@ -17,7 +18,7 @@ class V1Hasher(HasherBase):
     piece_length: V1PieceLength
     _buffer: bytearray = PrivateAttr(default_factory=bytearray)
     _v1_counter: count = PrivateAttr(default_factory=count)
-    _last_path: Path = PrivateAttr(default_factory=Path)
+    _last_path: Path | None = None
 
     @field_validator("read_size", mode="before")
     def read_size_is_piece_length(cls, value: int | None, info: ValidationInfo) -> int:
@@ -36,16 +37,27 @@ class V1Hasher(HasherBase):
         return value
 
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+        return self._update_v1(chunk, pool)
+
+    @cached_property
+    def total_hashes(self) -> int:
+        return self._v1_total_hashes()
+
+    def _update_v1(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+        # gather v1 pieces until we have blocks_per_piece or reach the end of a file
+        res = []
+        if self._last_path is not None and chunk.path != self._last_path and len(self._buffer) > 0:
+            res.extend(self._on_file_end(pool=pool))
         self._last_path = chunk.path
+
         if len(chunk.chunk) == self.piece_length and not self._buffer:
             # shortcut for when our read_length is piece size -
             # don't copy to buffer if we don't have to
             chunk.idx = next(self._v1_counter)
-            return [pool.apply_async(self._hash_v1, (chunk, self.path_root))]
+            res.append(pool.apply_async(self._hash_v1, (chunk, self.path_root)))
         else:
             # handle file ends, read sizes that are larger/smaller than piece size.
             self._buffer.extend(chunk.chunk)
-            res = []
             while len(self._buffer) >= self.piece_length:
                 piece = self._buffer[: self.piece_length]
                 del self._buffer[: self.piece_length]
@@ -53,14 +65,22 @@ class V1Hasher(HasherBase):
                     idx=next(self._v1_counter), path=chunk.path, chunk=piece
                 )
                 res.append(pool.apply_async(self._hash_v1, (piece_chunk, self.path_root)))
-            return res
+        return res
+
+    def _on_file_end(self, pool: PoolType) -> list[AsyncResult]:
+        """Allow hybrid hasher to add padding at file boundaries and submit piece"""
+        return []
 
     def _after_read(self, pool: PoolType) -> list[AsyncResult]:
         """Submit the final incomplete piece"""
-        chunk = Chunk.model_construct(
-            idx=next(self._v1_counter), path=self._last_path, chunk=self._buffer
-        )
-        return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]
+        if len(self._buffer) > 0:
+            self._last_path = cast(Path, self._last_path)
+            chunk = Chunk.model_construct(
+                idx=next(self._v1_counter), path=self._last_path, chunk=self._buffer
+            )
+            return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]
+        else:
+            return []
 
 
 def sort_v1(paths: list[Path]) -> list[Path]:

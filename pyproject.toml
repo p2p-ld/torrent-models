@@ -66,6 +66,7 @@ dev = [
 
 [project.scripts]
 torrent = "torrent_models.cli.main:main"
+tm = "torrent_models.cli.main:main"
 
 [build-system]
 requires = ["pdm-backend"]
