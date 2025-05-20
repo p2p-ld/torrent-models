@@ -73,7 +73,7 @@ class HybridHasher(V1Hasher, V2Hasher):
         return int(self.piece_length / BLOCK_SIZE)
 
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
-        res = [pool.apply_async(self._hash_v2, args=(chunk, self.path_base))]
+        res = [pool.apply_async(self._hash_v2, args=(chunk, self.path_root))]
 
         # gather v1 pieces until we have blocks_per_piece or reach the end of a file
         if (
@@ -102,7 +102,7 @@ class HybridHasher(V1Hasher, V2Hasher):
         self._last_path = cast(Path, self._last_path)
         piece = b"".join([piece, bytes(self.piece_length - len(piece))])
         chunk = Chunk.model_construct(idx=next(self._v1_counter), path=self._last_path, chunk=piece)
-        return pool.apply_async(self._hash_v1, args=(chunk, self.path_base))
+        return pool.apply_async(self._hash_v1, args=(chunk, self.path_root))
 
     def _after_read(self, pool: PoolType) -> list[AsyncResult]:
         """Submit any remaining v1 pieces from the last file"""
@@ -123,5 +123,5 @@ class HybridHasher(V1Hasher, V2Hasher):
 
         v2_leaf_hashes = [h for h in hashes if h.type == "block"]
         trees = self.finish_trees(v2_leaf_hashes)
-        layers = PieceLayers.from_trees(trees, self.path_base)
+        layers = PieceLayers.from_trees(trees, self.path_root)
         return layers, v1_pieces

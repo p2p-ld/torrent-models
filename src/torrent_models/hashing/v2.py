@@ -31,7 +31,7 @@ class V2Hasher(HasherBase):
         return value
 
     def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
-        return [pool.apply_async(self._hash_v2, (chunk, self.path_base))]
+        return [pool.apply_async(self._hash_v2, (chunk, self.path_root))]
 
     @classmethod
     def hash_root(
@@ -75,7 +75,7 @@ class V2Hasher(HasherBase):
 
         trees = []
         for path, hashes in file_hashes.items():
-            file_size = get_size(self.path_base / path)
+            file_size = get_size(self.path_root / path)
             shape = MerkleTreeShape(file_size=file_size, piece_length=self.piece_length)
             hash_bytes = [h.hash for h in hashes]
             if len(hash_bytes) < shape.n_blocks + shape.n_pad_blocks:

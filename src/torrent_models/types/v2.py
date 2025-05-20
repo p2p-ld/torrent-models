@@ -141,7 +141,7 @@ class MerkleTree(BaseModel):
         hasher = V2Hasher(
             paths=[path],
             piece_length=piece_length,
-            path_base=path_root,
+            path_root=path_root,
             n_processes=n_processes,
             progress=progress,
             **kwargs,
@@ -392,7 +392,7 @@ class PieceLayers:
 
         hasher = V2Hasher(
             paths=paths,
-            path_base=path_root,
+            path_root=path_root,
             piece_length=piece_length,
             n_processes=n_processes,
             progress=progress,

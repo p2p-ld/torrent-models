@@ -41,7 +41,7 @@ class V1Hasher(HasherBase):
             # shortcut for when our read_length is piece size -
             # don't copy to buffer if we don't have to
             chunk.idx = next(self._v1_counter)
-            return [pool.apply_async(self._hash_v1, (chunk, self.path_base))]
+            return [pool.apply_async(self._hash_v1, (chunk, self.path_root))]
         else:
             # handle file ends, read sizes that are larger/smaller than piece size.
             self._buffer.extend(chunk.chunk)
@@ -52,7 +52,7 @@ class V1Hasher(HasherBase):
                 piece_chunk = Chunk.model_construct(
                     idx=next(self._v1_counter), path=chunk.path, chunk=piece
                 )
-                res.append(pool.apply_async(self._hash_v1, (piece_chunk, self.path_base)))
+                res.append(pool.apply_async(self._hash_v1, (piece_chunk, self.path_root)))
             return res
 
     def _after_read(self, pool: PoolType) -> list[AsyncResult]:
@@ -60,7 +60,7 @@ class V1Hasher(HasherBase):
         chunk = Chunk.model_construct(
             idx=next(self._v1_counter), path=self._last_path, chunk=self._buffer
         )
-        return [pool.apply_async(self._hash_v1, args=(chunk, self.path_base))]
+        return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]
 
 
 def sort_v1(paths: list[Path]) -> list[Path]:

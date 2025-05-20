@@ -67,7 +67,7 @@ class HasherBase(BaseModel):
     
     Paths should already be sorted in the order they are to appear in the torrent
     """
-    path_base: AbsPath
+    path_root: AbsPath
     """Directory containing paths to hash"""
     piece_length: V1PieceLength | V2PieceLength
     n_processes: int = Field(default_factory=mp.cpu_count)
@@ -84,20 +84,20 @@ class HasherBase(BaseModel):
     """
 
     @staticmethod
-    def _hash_v1(chunk: Chunk, path_base: Path) -> Hash:
+    def _hash_v1(chunk: Chunk, path_root: Path) -> Hash:
         return Hash.model_construct(
             hash=hashlib.sha1(chunk.chunk).digest(),
             type="v1_piece",
-            path=chunk.path.relative_to(path_base),
+            path=chunk.path.relative_to(path_root),
             idx=chunk.idx,
         )
 
     @staticmethod
-    def _hash_v2(chunk: Chunk, path_base: Path) -> Hash:
+    def _hash_v2(chunk: Chunk, path_root: Path) -> Hash:
         return Hash.model_construct(
             hash=hashlib.sha256(chunk.chunk).digest(),
             type="block",
-            path=chunk.path.relative_to(path_base),
+            path=chunk.path.relative_to(path_root),
             idx=chunk.idx,
         )
 
@@ -121,7 +121,7 @@ class HasherBase(BaseModel):
         """Total read_size chunks in all files"""
         total_chunks = 0
         for path in self.paths:
-            total_chunks += ceil(get_size(self.path_base / path) / self.read_size)
+            total_chunks += ceil(get_size(self.path_root / path) / self.read_size)
         return total_chunks
 
     @cached_property
@@ -158,7 +158,7 @@ class HasherBase(BaseModel):
 
                 pbars.file.set_description(str(path))
 
-                async for chunk in iter_blocks(self.path_base / path, read_size=self.read_size):
+                async for chunk in iter_blocks(self.path_root / path, read_size=self.read_size):
                     pbars.read.update()
                     res = self.update(chunk, pool)
                     results.extend(res)

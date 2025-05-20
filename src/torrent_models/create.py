@@ -181,7 +181,7 @@ class TorrentCreate(TorrentBase):
             hasher = V1Hasher(
                 paths=files,
                 piece_length=self._get_piece_length(),
-                path_base=self.path_root,
+                path_root=self.path_root,
                 n_processes=n_processes,
                 progress=progress,
                 **kwargs,
@@ -254,7 +254,7 @@ class TorrentCreate(TorrentBase):
 
         hasher = HybridHasher(
             paths=paths,
-            path_base=self.path_root,
+            path_root=self.path_root,
             piece_length=self.piece_length,
             n_processes=n_processes,
             progress=progress,
