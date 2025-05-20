@@ -10,7 +10,7 @@ from math import ceil
 from multiprocessing.pool import ApplyResult, AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Any, Self, TypeAlias, overload
+from typing import Any, Self, TypeAlias, cast, overload
 from typing import Literal as L
 
 from anyio import open_file
@@ -73,7 +73,7 @@ class HasherBase(BaseModel):
     n_processes: int = Field(default_factory=mp.cpu_count)
     progress: bool = False
     """Show progress"""
-    read_size: int
+    read_size: int | None = None
     """
     How much of a file should be read in a single read call.
     
@@ -110,17 +110,11 @@ class HasherBase(BaseModel):
         """
         pass
 
-    @classmethod
-    @model_validator(mode="before")
-    def read_size_defaults_piece_size(cls, val: dict | Self) -> dict | Self:
-        if isinstance(val, dict):
-            if not val.get("read_size"):
-                val["read_size"] = val.get("piece_length")
-
-        else:
-            if not val.read_size:
-                val.read_size = val.piece_length
-        return val
+    @model_validator(mode="after")
+    def read_size_defaults_piece_size(self) -> Self:
+        if not self.read_size:
+            self.read_size = self.piece_length
+        return self
 
     def complete(self, hashes: list[Hash]) -> list[Hash]:
         """After hashing, do any postprocessing to yield the desired output"""
@@ -138,6 +132,7 @@ class HasherBase(BaseModel):
     def total_chunks(self) -> int:
         """Total read_size chunks in all files"""
         total_chunks = 0
+        self.read_size = cast(int, self.read_size)
         for _, size in self.file_sizes:
             total_chunks += ceil(size / self.read_size)
         return total_chunks
@@ -173,6 +168,7 @@ class HasherBase(BaseModel):
         if self.memory_limit is None:
             return None
         else:
+            self.read_size = cast(int, self.read_size)
             return self.memory_limit // self.read_size
 
     async def process_async(self) -> list[Hash]:
@@ -197,7 +193,7 @@ class HasherBase(BaseModel):
                 for path in self.paths:
 
                     pbars.file.set_description(str(path))
-
+                    self.read_size = cast(int, self.read_size)
                     async for chunk in iter_blocks(self.path_root / path, read_size=self.read_size):
                         pbars.read.update()
                         res = self.update(chunk, pool)

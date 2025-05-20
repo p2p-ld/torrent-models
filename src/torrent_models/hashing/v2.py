@@ -17,7 +17,7 @@ from torrent_models.types.v2 import MerkleTree, MerkleTreeShape, V2PieceLength
 
 class V2Hasher(HasherBase):
     piece_length: V2PieceLength
-    read_size: V2PieceLength
+    read_size: V2PieceLength | None = None
 
     _v2_counter: count = PrivateAttr(default_factory=count)
 

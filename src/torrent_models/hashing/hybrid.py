@@ -47,7 +47,7 @@ def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
 
 class HybridHasher(V1Hasher, V2Hasher):
     piece_length: V2PieceLength
-    read_size: V2PieceLength
+    read_size: V2PieceLength | None = None
 
     _v1_chunks: list[Chunk] = PrivateAttr(default_factory=list)
     _last_path: Path | None = None
