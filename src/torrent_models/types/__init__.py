@@ -19,9 +19,13 @@ from torrent_models.types.serdes import (
 )
 from torrent_models.types.v1 import FileItem, Pieces, V1PieceLength
 from torrent_models.types.v2 import (
+    FileTree,
     FileTreeItem,
     FileTreeType,
+    MerkleTree,
+    MerkleTreeShape,
     PieceLayerItem,
+    PieceLayers,
     PieceLayersType,
     V2PieceLength,
 )
@@ -34,10 +38,14 @@ __all__ = [
     "FileItem",
     "FileName",
     "FilePart",
+    "FileTree",
     "FileTreeItem",
     "FileTreeType",
     "ListOrValue",
+    "MerkleTree",
+    "MerkleTreeShape",
     "PieceLayerItem",
+    "PieceLayers",
     "PieceLayersType",
     "Pieces",
     "RelPath",
