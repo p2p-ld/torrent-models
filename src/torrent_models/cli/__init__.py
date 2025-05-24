@@ -5,7 +5,7 @@ __all__ = ["main"]
 
 if find_spec("click"):
 
-    from torrent_models.cli import main
+    from torrent_models.cli.main import main
 else:
     warnings.warn(
         "cli dependencies are not installed - install with torrent-models[cli]", stacklevel=2

@@ -25,7 +25,7 @@ from torrent_models.info import (
     InfoDictV2,
     InfoDictV2Create,
 )
-from torrent_models.torrent import Torrent
+from torrent_models.torrent import Torrent, pprint
 from torrent_models.create import TorrentCreate
 
 __all__ = [
@@ -60,4 +60,5 @@ __all__ = [
     "V1PieceLength",
     "V2PieceLength",
     "size",
+    "pprint",
 ]

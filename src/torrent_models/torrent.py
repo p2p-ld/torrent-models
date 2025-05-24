@@ -4,7 +4,12 @@ from typing import Any, Self, cast
 from typing import Literal as L
 
 import bencode_rs
+import humanize
 from pydantic import Field, model_validator
+from rich import print
+from rich.console import Group
+from rich.pretty import Pretty
+from rich.table import Table
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
@@ -18,6 +23,7 @@ from torrent_models.info import (
 from torrent_models.types import (
     ByteStr,
     ByteUrl,
+    FileItem,
     FileTreeItem,
     ListOrValue,
     PieceLayersType,
@@ -136,6 +142,14 @@ class TorrentBase(ConfiguredBase):
             dumped = bencode_rs.bdecode(bencode_rs.bencode(dumped))
         return dumped
 
+    def pprint(self, verbose: int = 0) -> None:
+        """
+        Pretty print the torrent.
+
+        See :func:`.pprint`
+        """
+        pprint(self, verbose=verbose)
+
 
 class Torrent(TorrentBase):
     """
@@ -177,3 +191,117 @@ class Torrent(TorrentBase):
     def bencode(self) -> bytes:
         dumped = self.model_dump(exclude_none=True, by_alias=True)
         return bencode_rs.bencode(dumped)
+
+    def write(self, path: Path) -> None:
+        """Write the torrent to disk"""
+        with open(path, "wb") as f:
+            f.write(self.bencode())
+
+    @property
+    def file_size(self) -> int:
+        """Size of the generated torrent file, in bytes"""
+        return len(self.bencode())
+
+
+def pprint(t: TorrentBase, verbose: int = 0) -> None:
+    """
+    Print the contents of a torrent file.
+
+    By default, prints only the top-level metadata in a way that should always be
+    smaller than one screen.
+
+    Increase verbosity to show more of the torrent.
+
+    Hashes are printed as hexadecimal numbers and split into individual pieces,
+    but they are properly encoded in the torrent.
+
+    Args:
+        t (:class:`.Torrent`): The torrent to print.
+        verbose (int): Level of detail to print.
+
+            * ``1`` show files in separate table
+            * ``2`` show truncated v1 piece hashes
+            * ``3`` show everything as-is
+
+    """
+    # summary stats
+    summary = {
+        "# Files": humanize.number.intcomma(t.n_files),
+        "Total Size": humanize.naturalsize(t.total_size, binary=True),
+        "Piece Size": humanize.naturalsize(t.info.piece_length, binary=True),
+    }
+    if hasattr(t, "file_size"):
+        summary["Torrent Size"] = humanize.naturalsize(t.file_size, binary=True)
+
+    v1_infohash = t.v1_infohash
+    v2_infohash = t.v2_infohash
+    if v1_infohash:
+        summary["V1 Infohash"] = v1_infohash.hex()
+    if v2_infohash:
+        summary["V2 Infohash"] = v2_infohash.hex()
+    table = Table(title=t.info.name, show_header=False)
+    table.add_column("", justify="left", style="magenta bold", no_wrap=True)
+    table.add_column("")
+    for k, v in summary.items():
+        table.add_row(k, v)
+
+    exclude = {}
+    context = {"mode": "print", "hash_truncate": True}
+    file_table = None
+    if verbose <= 1:
+        exclude = {"info": {"pieces", "file tree", "file_tree", "files"}, "piece_layers": True}
+    elif verbose <= 2:
+        exclude = {"info": {"file tree", "file_tree", "files"}, "piece_layers": True}
+    else:
+        context["hash_truncate"] = False
+
+    # make file table
+    if 1 <= verbose <= 2:
+        file_table = Table(title="Files")
+        file_table.add_column("Path", no_wrap=True)
+        file_table.add_column("Size")
+
+        if t.torrent_version == TorrentVersion.v1:
+            t.info = cast(InfoDictV1, t.info)
+            tfiles = (
+                t.info.files
+                if t.info.files is not None
+                else [FileItem(path=t.info.name, length=t.info.length)]
+            )
+
+            files = [
+                ("/".join(f.path), humanize.naturalsize(f.length, binary=True), "")
+                for f in tfiles
+                if f.attr not in (b"p", "p")
+            ]
+        else:
+            t.info = cast(InfoDictV2 | InfoDictHybrid, t.info)
+            file_table.add_column("Hash")
+            tree = t.flat_files
+            assert tree is not None
+            files = [
+                (
+                    str(k),
+                    humanize.naturalsize(v["length"], binary=True),
+                    v["pieces root"].hex()[0:8],
+                )
+                for k, v in tree.items()
+            ]
+
+        for f in files:
+            file_table.add_row(*f)
+
+    dumped = t.model_dump(
+        by_alias=True, exclude=exclude, exclude_none=True, context=context  # type: ignore
+    )
+
+    if verbose < 1 or verbose > 2:
+        group = Group(
+            table,
+            Pretty(dumped),
+        )
+    elif verbose <= 2:
+        assert file_table is not None
+        group = Group(table, file_table, Pretty(dumped))
+
+    print(group)

@@ -176,7 +176,17 @@ class HasherBase(BaseModel):
         return self.complete(hashes)
 
     def process(self) -> list[Hash]:
-        return asyncio.run(self.process_async())
+        try:
+            return asyncio.run(self.process_async())
+        except RuntimeError as e:
+            if "from a running event loop" in str(e):
+                import nest_asyncio
+
+                nest_asyncio.apply()
+                loop = asyncio.get_event_loop()
+                return loop.run_until_complete(self.process_async())
+            else:
+                raise e
 
     async def hash(self) -> list[Hash]:
         """
