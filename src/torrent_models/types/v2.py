@@ -234,24 +234,25 @@ class FileTree(BaseModel):
     - `folder/file1.png`
     - `file2.png`
 
-    ```
-    {
-        "folder": {
-            "file1.png": {
+    .. code-block:: python
+
+        {
+            "folder": {
+                "file1.png": {
+                    "": {
+                        "length": 123,
+                        "pieces root": b"<hash>",
+                    }
+                }
+            },
+            "file2.png": {
                 "": {
                     "length": 123,
                     "pieces root": b"<hash>",
                 }
             }
-        },
-        "file2.png": {
-            "": {
-                "length": 123,
-                "pieces root": b"<hash>",
-            }
         }
-    }
-    ```
+
     """
 
     tree: FileTreeType

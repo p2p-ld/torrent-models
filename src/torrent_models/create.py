@@ -19,7 +19,7 @@ from torrent_models.hashing import HybridHasher, V1Hasher, add_padfiles
 from torrent_models.hashing.v1 import sort_v1
 from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
 from torrent_models.torrent import TorrentBase
-from torrent_models.types import FileItem, TrackerFields, V1PieceLength, V2PieceLength
+from torrent_models.types import AbsPath, FileItem, TrackerFields, V1PieceLength, V2PieceLength
 from torrent_models.types.serdes import ByteUrl
 from torrent_models.types.v2 import FileTree, PieceLayers
 
@@ -62,7 +62,9 @@ class TorrentCreate(TorrentBase):
         If absolute, paths are made relative to the path root.
         """,
     )
-    path_root: Path = Field(default_factory=Path, description="Path to interpret paths relative to")
+    path_root: AbsPath = Field(
+        default_factory=Path, description="Path to interpret paths relative to"
+    )
 
     trackers: list[ByteUrl] | list[list[ByteUrl]] | None = Field(
         None,

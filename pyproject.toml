@@ -12,6 +12,7 @@ dependencies = [
     'typing-extensions>=4.13.0; python_version<"3.12"',
     "anyio>=4.9.0",
     "rich>=14.0.0",
+    "nest-asyncio>=1.6.0",
 ]
 requires-python = ">=3.11"
 readme = "README.md"
@@ -61,10 +62,24 @@ dev = [
     "black>=25.1.0",
     "mypy>=1.15.0",
     "types-tqdm>=4.67.0.20250417",
+    "sphinx-autobuild>=2024.10.3",
+]
+docs = [
+    "torrent-models[cli]",
+    "sphinx>=8.2.3",
+    "furo>=2024.8.6",
+    "myst-parser>=4.0.1",
+    "autodoc-pydantic>=2.2.0",
+    "sphinx-design>=0.6.1",
+    "sphinxcontrib-mermaid>=1.0.0",
+    "myst-nb>=1.2.0",
+    "rich>=14.0.0",
+    "sphinx-click>=6.0.0",
 ]
 
 
 [project.scripts]
+torrent-models = "torrent_models.cli.main:main"
 torrent = "torrent_models.cli.main:main"
 tm = "torrent_models.cli.main:main"
 
@@ -98,6 +113,7 @@ format.composite = [
 ]
 mypy = "mypy"
 benchmark = "pytest tests/bench.py --codspeed"
+docs = "sphinx-autobuild ./docs ./docs/_build/html"
 
 
 [tool.ruff]
