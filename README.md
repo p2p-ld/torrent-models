@@ -1,19 +1,22 @@
 # torrent-models
 
+[![docs](https://readthedocs.org/projects/torrent-models/badge/)](https://torrent-models.readthedocs.io/en/latest/)
+
 .torrent file parsing and creation with pydantic
 (and models for other bittorrent things too)
 
+While there are [many](#other-projects) other torrent packages, this one:
+
+- Is simple and focused
+- Can create and parse v1, v2, hybrid, and [other BEPs](./beps.md)
+- Is focused on library usage (but does [cli things too](./usage/cli.md))
+- Validates torrent files (e.g. when accepting them as user input!)
+- Treats .torrent files as an *extensible* rather than fixed format
+- Is performant! (and asyncio compatible when hashing!)
+- Uses python typing and is mypy friendly
+
 ~ alpha software primarily intended for use with [sciop](https://codeberg.org/Safeguarding/sciop) ~
 
-## Initial development
-
-- [x] Parsing
-  - [x] v1
-  - [x] v2
-- [x] Generation
-  - [x] v1
-  - [x] v2
-  - [ ] hybrid
 
 ## See also
 
@@ -26,15 +29,6 @@ These are also good projects, and probably more battle tested
 - [`torrenttool`](https://github.com/idlesign/torrentool)
 - [`PyBitTorrent`](https://github.com/gaffner/PyBitTorrent)
 - [`torrent_parser`](https://github.com/7sDream/torrent_parser)
-
-The reason this package exists is that none of them are a pure, complete
-parser and generator of torrent files that...
-- can handle v1, v2, hybrid, and all other .torrent-related BEPs
-- is focused on library usage
-- is simple and focused
-- has few dependencies
-- is performant
-- uses modern python typing
 
 Specifically
 - `torf` has some notable performance problems, and doesn't support v2

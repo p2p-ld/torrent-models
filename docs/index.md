@@ -32,6 +32,8 @@ While there are [many](#other-projects) other torrent packages, this one:
 - Is performant! (and asyncio compatible when hashing!)
 - Uses python typing and is mypy friendly
 
+this package was created for, and used by [sciop <3](https://sciop.net/)
+
 ## Examples
 
 ### Read a torrent
@@ -169,6 +171,7 @@ The reasons we did not use these other tools and wrote this one:
 
 ```{toctree}
 :caption: Usage:
+:hidden:
 
 usage/torrent
 usage/cli
@@ -176,6 +179,7 @@ usage/cli
 
 ```{toctree}
 :caption: API:
+:hidden:
 
 api/create
 api/hashing
@@ -188,6 +192,7 @@ api/types
 ```{toctree}
 :maxdepth: 2
 :caption: Reference:
+:hidden:
 
 beps
 references
