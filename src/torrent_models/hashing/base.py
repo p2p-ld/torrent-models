@@ -187,8 +187,6 @@ class HasherBase(BaseModel):
 
             hashes = []
             results: deque[ApplyResult] = deque()
-            # if "1_1073741824_equal0" in str(self.path_root):
-            #     breakpoint()
             try:
                 for path in self.paths:
 
