@@ -180,7 +180,7 @@ class HasherBase(BaseModel):
             return asyncio.run(self.process_async())
         except RuntimeError as e:
             if "from a running event loop" in str(e):
-                import nest_asyncio
+                import nest_asyncio  # type: ignore
 
                 nest_asyncio.apply()
                 loop = asyncio.get_event_loop()
