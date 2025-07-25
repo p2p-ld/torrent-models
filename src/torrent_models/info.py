@@ -320,11 +320,20 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
         ), "v1 file lists and v2 file trees must have same length"
         for v1_file, v2_item in zip(v1_files, v2_files.items()):
             v2_path, v2_file = v2_item
+            v1_posix = posixjoin(*v1_file.path)
 
-            assert posixjoin(*v1_file.path) == v2_path, (
+            assert v1_posix == v2_path, (
                 "v1 file lists and v2 file trees must be in the same order "
-                "and have matching path names, excluding v1 padfiles"
+                "and have matching path names, excluding v1 padfiles. "
+                f"Got:\n"
+                f"v1 path: {posixjoin(*v1_file.path)}\n"
+                f"v2 path: {v2_path}\n"
             )
-            assert v1_file.length == v2_file["length"], "v1 and v2 file lengths must match"
+            assert v1_file.length == v2_file["length"], (
+                "v1 and v2 file lengths must match. Got: \n"
+                f"path: {v1_posix}\n"
+                f"v1 length: {v1_file.length}\n"
+                f"v2 length: {v2_file['length']}"
+            )
 
         return self
