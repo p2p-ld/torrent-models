@@ -1,6 +1,6 @@
 from math import ceil
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import Any, BinaryIO, Self, cast
 from typing import Literal as L
 
 import bencode_rs
@@ -52,11 +52,16 @@ class TorrentBase(ConfiguredBase):
         return self.url_list
 
     @classmethod
-    def read(cls, path: Path | str) -> Self:
-        with open(path, "rb") as tfile:
-            tdata = tfile.read()
+    def read_stream(cls, stream: BinaryIO) -> Self:
+        tdata = stream.read()
         tdict = bencode_rs.bdecode(tdata)
         return cls.from_decoded(decoded=tdict)
+
+    @classmethod
+    def read(cls, path: Path | str) -> Self:
+        with open(path, "rb") as tfile:
+            torrent = cls.read_stream(tfile)
+        return torrent
 
     @classmethod
     def from_decoded(cls, decoded: dict[str | bytes, Any], **data: Any) -> Self:

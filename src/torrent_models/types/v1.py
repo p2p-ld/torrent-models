@@ -2,11 +2,17 @@
 Types used only in v1 (and hybrid) torrents
 """
 
-from typing import Annotated
-from typing import Literal as L
+from typing import Annotated, Self
 
 from annotated_types import Gt
-from pydantic import AfterValidator, BaseModel, BeforeValidator, PlainSerializer
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    PlainSerializer,
+    ValidationInfo,
+    model_validator,
+)
 from pydantic_core.core_schema import SerializationInfo
 
 from torrent_models.types.common import FilePart, SHA1Hash, _power_of_two
@@ -46,4 +52,29 @@ Pieces = Annotated[
 class FileItem(BaseModel):
     length: Annotated[int, Gt(0)]
     path: list[FilePart]
-    attr: L[b"p"] | None = None
+    attr: bytes | None = None
+    """
+    BEP0047: A variable-length string. 
+    When present the characters each represent a file attribute. 
+    l = symlink, 
+    x = executable, 
+    h = hidden, 
+    p = padding file. 
+    Characters appear in no particular order and unknown characters should be ignored.
+    """
+
+    @property
+    def is_padfile(self) -> bool:
+        return self.attr is not None and b"p" in self.attr
+
+    @model_validator(mode="after")
+    def strict_padfile_naming(self, info: ValidationInfo) -> Self:
+        """in strict mode, padfiles must be named `.pad/{length}"""
+        if not self.is_padfile:
+            return self
+        if info.context and info.context.get("padding_path") == "strict":
+            assert self.path == [
+                ".pad",
+                str(self.length),
+            ], "strict mode - padfiles must be named `.pad/{length}`"
+        return self

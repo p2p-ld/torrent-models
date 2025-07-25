@@ -1,10 +1,11 @@
 import hashlib
 from math import ceil
+from posixpath import join as posixjoin
 from typing import Annotated, Self, cast
 
 import bencode_rs
 from annotated_types import Gt, MinLen
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationInfo, model_validator
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types.serdes import ByteStr
@@ -80,6 +81,101 @@ class InfoDictV1Base(InfoDictRoot):
             f"Got {len(self.pieces)}"
         )
         return self
+
+    @model_validator(mode="after")
+    def padfile_alignment(self, info: ValidationInfo) -> Self:
+        """
+        If padfiles are present in the files list,
+        the sum of a file and its padfile's sizes must be a multiple of the piece size.
+
+        .. note:: V1-only vs hybrid differences
+
+            Some clients do not pad every non-aligned file in v1-only torrents,
+            which defeats the purpose of padding, but it happens.
+            The default behavior for v1-only does **not** guarantee
+            that a torrent is globally aligned such that every file starts at a piece boundary.
+            Instead it validates that when padfiles are present, that their size makes sense.
+            To ensure global padding, use pydantic's `strict` validation mode,
+            or pass `context = {"padding": "strict"}`.
+
+            Hybrid torrents must have their v1 files list padded,
+            and the padding must be globally correct.
+
+
+        .. note:: Possible Validation Variations
+
+            The behavior of this validator can be changed by passing `padding` to the `context`
+            argument of `model_validate` -
+            See :class:`~torrent_models.types.validation.ValidationContext`
+
+        """
+        if not self.files or len(self.files) == 1 or not self.piece_length:
+            return self
+
+        # -- settle switching vars --
+        strict = info.config and info.config.get("strict", False)
+        hybrid = hasattr(self, "file_tree")
+
+        mode = "default" if not info.context else info.context.get("padding", "default")
+
+        if mode == "default" and hybrid:
+            mode = "strict"
+
+        # -- do the behavior switch --
+        if mode == "ignore" and not strict:
+            return self
+
+        if mode == "default":
+            fn = self._validate_padding_default
+        elif mode == "strict":
+            fn = self._validate_padding_strict
+        elif mode == "forbid":
+            fn = self._validate_padding_forbid
+        else:
+            raise ValueError(f"unknown padfile validation mode: {mode}")
+
+        for first, second in zip(self.files[:-1], self.files[1:]):
+            fn(first, second)
+
+        return self
+
+    def _validate_padding_default(self, first: FileItem, second: FileItem) -> None:
+        # for a file/padfile pair, the sizes should be a multiple of the piece size
+
+        if not (second.is_padfile and not first.is_padfile):
+            return
+        self.piece_length = cast(int, self.piece_length)
+        assert (first.length + second.length) % self.piece_length == 0, (
+            "If padfiles are present, they must have a length that causes the next file "
+            "in the list to align with a piece boundary, "
+            "aka the sum of their lengths must be a multiple of the piece length."
+        )
+
+    def _validate_padding_strict(self, first: FileItem, second: FileItem) -> None:
+        # only validate when the first file is not a padfile. if the second file is a padfile,
+        # we just validated the pair in the last iteration
+        if first.is_padfile:
+            return
+
+        # if the first file's length is a multiple of the piece length, no padfile is needed.
+        self.piece_length = cast(int, self.piece_length)
+        if first.length % self.piece_length == 0:
+            return
+
+        # we have a file that needs padding, so second file must be a padfile
+        # and the sum must round out
+        message = (
+            "padding mode: strict - every file that is not a multiple of piece_length "
+            "must have a padding file that aligns each file with a piece boundary."
+        )
+
+        assert second.is_padfile, message
+        assert (first.length + second.length) % self.piece_length == 0, message
+
+    def _validate_padding_forbid(self, first: FileItem, second: FileItem) -> None:
+        assert (
+            not first.is_padfile and not second.is_padfile
+        ), "padding mode: forbid - padfiles are forbidden"
 
 
 class InfoDictV1(InfoDictV1Base):
@@ -199,4 +295,36 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
             f"{self.piece_length}. "
             f"Got {len(self.pieces)}"
         )
+        return self
+
+    @model_validator(mode="after")
+    def v1_v2_files_match(self) -> Self:
+        """
+        From BEP 052:
+
+        > ... the 'pieces' field and 'files' or 'length' in the info dictionary
+        > must be generated to describe the same data in the same order.
+        > ... Before doing so they must validate that the content
+        > (file names, order, piece alignment) is identical.
+
+        file names, sizes, and order must match (ignoring padfiles).
+        """
+        v2_files = self.flat_tree
+        if not self.files:
+            v1_files = [FileItem(path=self.name, length=self.length)]
+        else:
+            v1_files = [f for f in self.files if not f.is_padfile]
+
+        assert len(v1_files) == len(
+            v2_files
+        ), "v1 file lists and v2 file trees must have same length"
+        for v1_file, v2_item in zip(v1_files, v2_files.items()):
+            v2_path, v2_file = v2_item
+
+            assert posixjoin(*v1_file.path) == v2_path, (
+                "v1 file lists and v2 file trees must be in the same order "
+                "and have matching path names, excluding v1 padfiles"
+            )
+            assert v1_file.length == v2_file["length"], "v1 and v2 file lengths must match"
+
         return self
