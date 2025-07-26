@@ -1,5 +1,6 @@
 import shutil
 from pathlib import Path
+from random import randbytes
 
 import pytest
 from torf import Torrent as TorfTorrent
@@ -50,7 +51,7 @@ def _equal_sizes(path: Path, n: int, total_size: int) -> None:
     each_size = total_size // n
     for i in range(n):
         with open(path / f"{i}.bin", "wb") as f:
-            f.write(bytes(each_size))
+            f.write(randbytes(each_size))
 
 
 @pytest.fixture(
@@ -58,8 +59,8 @@ def _equal_sizes(path: Path, n: int, total_size: int) -> None:
     params=[
         pytest.param((1, 16 * size.KiB), id="files-1-size-16KiB"),
         pytest.param((1, 1 * size.GiB), id="files-1-size-1GiB"),
-        pytest.param((5000, 16 * size.KiB), id="files-5000-size-64KiB"),
-        pytest.param((5000, 1 * size.GiB), id="files-5000-size-1GiB"),
+        pytest.param((1000, 16 * size.KiB), id="files-1000-size-16KiB"),
+        pytest.param((1000, 1 * size.GiB), id="files-1000-size-1GiB"),
     ],
 )
 def torrent_equal_sizes(request, tmp_path_factory) -> tuple[Path, int, int]:
@@ -96,13 +97,33 @@ def test_create(torrent_version, torrent_equal_sizes, piece_size, benchmark):
     path, n_files, total_size = torrent_equal_sizes
     if n_files > 1000 and piece_size >= (2 * size.MiB) and torrent_version == TorrentVersion.hybrid:
         pytest.skip("takes too long")
+    if n_files == 1 and total_size == 16 * size.KiB and piece_size > 1 * size.MiB:
+        pytest.skip("pointless")
 
     def _hash_and_bencode() -> None:
-        created = TorrentCreate(
+        _ = TorrentCreate(
             path_root=path,
             piece_length=piece_size,
             trackers=["https://example.com/announce"],
         ).generate(version=torrent_version)
-        _ = created.bencode()
+
+    benchmark(_hash_and_bencode)
+
+
+def test_create_libtorrent(torrent_version, torrent_equal_sizes, piece_size, benchmark):
+    path, n_files, total_size = torrent_equal_sizes
+    if n_files > 1000 and piece_size >= (2 * size.MiB) and torrent_version == TorrentVersion.hybrid:
+        pytest.skip("takes too long")
+    if n_files == 1 and total_size == 16 * size.KiB and piece_size > 1 * size.MiB:
+        pytest.skip("pointless")
+
+    def _hash_and_bencode() -> None:
+        generated = TorrentCreate(
+            path_root=path,
+            piece_length=piece_size,
+            trackers=["https://example.com/announce"],
+        ).generate_libtorrent(version=torrent_version)
+        # torrent_models generation method also revalidates, so this is fair
+        _ = Torrent.from_decoded(generated)
 
     benchmark(_hash_and_bencode)
