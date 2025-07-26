@@ -1,3 +1,4 @@
+import posixpath
 from math import ceil
 from pathlib import Path
 from typing import Any, BinaryIO, Self, cast
@@ -24,6 +25,7 @@ from torrent_models.types import (
     ByteStr,
     FileItem,
     FileTreeItem,
+    GenericFileItem,
     ListOrValue,
     PieceLayersType,
     TorrentVersion,
@@ -44,6 +46,9 @@ class TorrentBase(ConfiguredBase):
     url_list: ListOrValue[ByteStr] | None = Field(
         None, alias="url-list", description="List of webseeds"
     )
+
+    _flat_files: dict[str, FileTreeItem] | None = None
+    _files: list[GenericFileItem] | None = None
 
     @property
     def webseeds(self) -> list[str] | None:
@@ -132,10 +137,50 @@ class TorrentBase(ConfiguredBase):
     @property
     def flat_files(self) -> dict[str, FileTreeItem] | None:
         """A flattened version of the v2 file tree"""
-        if self.torrent_version == TorrentVersion.v1:
-            return None
-        self.info = cast(InfoDictV2, self.info)
-        return FileTree.flatten_tree(self.info.file_tree)
+        if self._flat_files is None and self.torrent_version != TorrentVersion.v1:
+            self.info = cast(InfoDictV2, self.info)
+            self._flat_files = FileTree.flatten_tree(self.info.file_tree)
+        return self._flat_files
+
+    @property
+    def files(self) -> list[GenericFileItem]:
+        """
+        Common access to file information from both v1 and v2 torrents
+        """
+        if self._files is None:
+            # v1 and v2 reps already confirmed to be equivalent during validation
+            files = []
+            if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
+                self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
+                if self.info.files is None:
+                    v1_files = [FileItem(length=self.info.length, path=[self.info.name])]
+                else:
+                    v1_files = self.info.files
+                for f in v1_files:
+                    if f.is_padfile:
+                        continue
+                    v1_repr = f.model_dump()
+                    v1_repr["path"] = posixpath.join(*v1_repr["path"])
+                    if isinstance(v1_repr["path"], bytes):
+                        v1_repr["path"] = v1_repr["path"].decode("utf-8")
+                    if self.torrent_version == TorrentVersion.hybrid:
+                        v2_repr = self.flat_files[v1_repr["path"]]  # type: ignore
+                    else:
+                        v2_repr = {}
+                    files.append(GenericFileItem(**{**v1_repr, **v2_repr}))
+            else:
+                files = [GenericFileItem(path=k, **v) for k, v in self.flat_files.items()]  # type: ignore
+            self._files = files
+        return self._files
+
+    @property
+    def flat_trackers(self) -> list[list[str]]:
+        trackers = []
+        if self.announce:
+            trackers.append([self.announce])
+        if self.announce_list:
+            trackers.extend(self.announce_list)
+        return trackers
 
     def model_dump_torrent(self, mode: L["str", "binary"] = "str", **kwargs: Any) -> dict:
         """

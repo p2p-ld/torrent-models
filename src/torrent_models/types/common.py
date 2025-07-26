@@ -3,9 +3,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, NotRequired, TypeAlias
 
-from annotated_types import Len
-from pydantic import AfterValidator, AnyUrl
+from annotated_types import Ge, Len
+from pydantic import AfterValidator, AnyUrl, Field
 
+from torrent_models.base import ConfiguredBase
 from torrent_models.types.serdes import ByteStr
 
 if sys.version_info < (3, 12):
@@ -32,7 +33,10 @@ SHA256Hash = Annotated[bytes, Len(32, 32)]
 
 TrackerFields = TypedDict(
     "TrackerFields",
-    {"announce": AnyUrl | str, "announce-list": NotRequired[list[list[AnyUrl]] | list[list[str]]]},
+    {
+        "announce": NotRequired[AnyUrl | str],
+        "announce-list": NotRequired[list[list[AnyUrl]] | list[list[str]]],
+    },
 )
 """The `announce` and `announce-list`"""
 
@@ -64,3 +68,16 @@ def _divisible_by_16kib(size: int) -> int:
 def _power_of_two(n: int) -> int:
     assert (n & (n - 1) == 0) and n != 0, "Piece size must be a power of two"
     return n
+
+
+class GenericFileItem(ConfiguredBase):
+    """
+    File metadata object with file information from both v1 and v2 representations
+
+    For use with :class:`.Torrent.files`
+    """
+
+    path: FileName
+    length: Annotated[int, Ge(0)]
+    attr: bytes | None = None
+    pieces_root: bytes | None = Field(None, alias="pieces root")

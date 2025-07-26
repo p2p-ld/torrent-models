@@ -337,12 +337,9 @@ class TorrentCreate(TorrentBase):
                         "announce-list": [[t] for t in self.trackers],
                     }
         else:
-            assert (
-                self.announce is not None
-            ), "No top-level trackers list passed, and announce is None"
-            trackers_: TrackerFields = {
-                "announce": self.announce,
-            }
+            trackers_: TrackerFields = {}
+            if self.announce is not None:
+                trackers_["announce"] = self.announce
 
             if self.announce_list is not None:
                 trackers_["announce-list"] = self.announce_list
