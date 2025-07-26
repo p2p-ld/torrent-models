@@ -86,4 +86,4 @@ def test_create_libtorrent(libtorrent_pair, tmp_path_factory):
     :return:
     """
     lt, generated = libtorrent_pair
-    assert lt == generated.model_dump_torrent()
+    assert lt == generated.model_dump_torrent(mode="binary")

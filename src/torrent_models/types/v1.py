@@ -4,10 +4,9 @@ Types used only in v1 (and hybrid) torrents
 
 from typing import Annotated, Self
 
-from annotated_types import Gt
+from annotated_types import Ge
 from pydantic import (
     AfterValidator,
-    BaseModel,
     BeforeValidator,
     PlainSerializer,
     ValidationInfo,
@@ -15,6 +14,7 @@ from pydantic import (
 )
 from pydantic_core.core_schema import SerializationInfo
 
+from torrent_models.base import ConfiguredBase
 from torrent_models.types.common import FilePart, SHA1Hash, _power_of_two
 
 V1PieceLength = Annotated[int, AfterValidator(_power_of_two)]
@@ -49,8 +49,8 @@ Pieces = Annotated[
 ]
 
 
-class FileItem(BaseModel):
-    length: Annotated[int, Gt(0)]
+class FileItem(ConfiguredBase):
+    length: Annotated[int, Ge(0)]
     path: list[FilePart]
     attr: bytes | None = None
     """

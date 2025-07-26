@@ -4,7 +4,7 @@ from posixpath import join as posixjoin
 from typing import Annotated, Any, Self, TypeAlias, cast
 
 import bencode_rs
-from annotated_types import Gt, MinLen
+from annotated_types import Ge, MinLen
 from pydantic import BaseModel, Discriminator, Field, Tag, ValidationInfo, model_validator
 
 from torrent_models.base import ConfiguredBase
@@ -44,7 +44,7 @@ class InfoDictRoot(ConfiguredBase):
 
 class InfoDictV1Base(InfoDictRoot):
     pieces: Pieces | None = None
-    length: Annotated[int, Gt(0)] | None = None
+    length: Annotated[int, Ge(0)] | None = None
     files: Annotated[list[FileItem], MinLen(1)] | None = Field(None)
     piece_length: V1PieceLength | None = Field(alias="piece length")
 
@@ -105,15 +105,12 @@ class InfoDictV1Base(InfoDictRoot):
 
             Some clients do not pad every non-aligned file in v1-only torrents,
             which defeats the purpose of padding, but it happens.
-            The default behavior for v1-only does **not** guarantee
-            that a torrent is globally aligned such that every file starts at a piece boundary.
-            Instead it validates that when padfiles are present, that their size makes sense.
-            To ensure global padding, use pydantic's `strict` validation mode,
+            The default behavior for v1-only is to ignore padfile validation.
+            To ensure global padding for v1-only torrents, use pydantic's `strict` validation mode,
             or pass `context = {"padding": "strict"}`.
 
             Hybrid torrents must have their v1 files list padded,
             and the padding must be globally correct.
-
 
         .. note:: Possible Validation Variations
 
@@ -131,16 +128,14 @@ class InfoDictV1Base(InfoDictRoot):
 
         mode = "default" if not info.context else info.context.get("padding", "default")
 
-        if mode == "default" and hybrid:
-            mode = "strict"
+        if mode == "default":
+            mode = "strict" if hybrid else "ignore"
 
         # -- do the behavior switch --
         if mode == "ignore" and not strict:
             return self
 
-        if mode == "default":
-            fn = self._validate_padding_default
-        elif mode == "strict":
+        if mode == "strict":
             fn = self._validate_padding_strict
         elif mode == "forbid":
             fn = self._validate_padding_forbid
@@ -151,18 +146,6 @@ class InfoDictV1Base(InfoDictRoot):
             fn(first, second)
 
         return self
-
-    def _validate_padding_default(self, first: FileItem, second: FileItem) -> None:
-        # for a file/padfile pair, the sizes should be a multiple of the piece size
-
-        if not (second.is_padfile and not first.is_padfile):
-            return
-        self.piece_length = cast(int, self.piece_length)
-        assert (first.length + second.length) % self.piece_length == 0, (
-            "If padfiles are present, they must have a length that causes the next file "
-            "in the list to align with a piece boundary, "
-            "aka the sum of their lengths must be a multiple of the piece length."
-        )
 
     def _validate_padding_strict(self, first: FileItem, second: FileItem) -> None:
         # only validate when the first file is not a padfile. if the second file is a padfile,

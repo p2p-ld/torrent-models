@@ -116,9 +116,7 @@ def _from_list(
     val: list[_Inner] | None, handler: SerializerFunctionWrapHandler
 ) -> list[_Inner] | _Inner | None:
     partial = handler(val)
-    if not partial:
-        return None
-    elif len(partial) == 1:
+    if partial and len(partial) == 1:
         return partial[0]
     else:
         return partial

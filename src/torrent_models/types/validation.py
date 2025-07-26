@@ -27,9 +27,8 @@ class ValidationContext(TypedDict, total=False):
     """
     Control how padfiles are validated
     
-    `'default`': v1-only torrents are validated by confirming individual files + pads
-             are a multiple of the piece size. Hybrid torrents are validated
-             as if `'strict'` had been passed.
+    `'default`': v1-only torrents -> ignore
+                 Hybrid torrents -> strict
     `'ignore'`: skip all padfile validation.
     `'strict'`: every file must start at a piece boundary.
     `'forbid'`: no padfiles may be present.
