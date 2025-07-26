@@ -1,6 +1,6 @@
 from math import ceil
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import Any, BinaryIO, Self, cast
 from typing import Literal as L
 
 import bencode_rs
@@ -12,9 +12,9 @@ from rich.pretty import Pretty
 from rich.table import Table
 
 from torrent_models.base import ConfiguredBase
-from torrent_models.const import DEFAULT_TORRENT_CREATOR
 from torrent_models.info import (
     InfoDictHybrid,
+    InfodictUnionType,
     InfoDictV1,
     InfoDictV1Base,
     InfoDictV2,
@@ -22,7 +22,6 @@ from torrent_models.info import (
 )
 from torrent_models.types import (
     ByteStr,
-    ByteUrl,
     FileItem,
     FileTreeItem,
     ListOrValue,
@@ -35,31 +34,38 @@ from torrent_models.types.v2 import FileTree
 
 
 class TorrentBase(ConfiguredBase):
-    announce: ByteUrl
-    announce_list: list[list[ByteUrl]] | None = Field(default=None, alias="announce-list")
+    announce: ByteStr | None = None
+    announce_list: list[list[ByteStr]] | None = Field(default=None, alias="announce-list")
     comment: ByteStr | None = None
-    created_by: ByteStr | None = Field(DEFAULT_TORRENT_CREATOR, alias="created by")
+    created_by: ByteStr | None = Field(None, alias="created by")
     creation_date: UnixDatetime | None = Field(default=None, alias="creation date")
-    info: InfoDictV1 | InfoDictV2 | InfoDictHybrid = Field(..., union_mode="left_to_right")
+    info: InfodictUnionType
     piece_layers: PieceLayersType | None = Field(None, alias="piece layers")
-    url_list: ListOrValue[ByteUrl] | None = Field(
+    url_list: ListOrValue[ByteStr] | None = Field(
         None, alias="url-list", description="List of webseeds"
     )
 
     @property
-    def webseeds(self) -> list[ByteUrl] | None:
+    def webseeds(self) -> list[str] | None:
         """alias to url_list"""
         return self.url_list
 
     @classmethod
-    def read(cls, path: Path | str) -> Self:
-        with open(path, "rb") as tfile:
-            tdata = tfile.read()
+    def read_stream(cls, stream: BinaryIO, context: dict | None = None) -> Self:
+        tdata = stream.read()
         tdict = bencode_rs.bdecode(tdata)
-        return cls.from_decoded(decoded=tdict)
+        return cls.from_decoded(decoded=tdict, context=context)
 
     @classmethod
-    def from_decoded(cls, decoded: dict[str | bytes, Any], **data: Any) -> Self:
+    def read(cls, path: Path | str, context: dict | None = None) -> Self:
+        with open(path, "rb") as tfile:
+            torrent = cls.read_stream(tfile, context=context)
+        return torrent
+
+    @classmethod
+    def from_decoded(
+        cls, decoded: dict[str | bytes, Any], context: dict | None = None, **data: Any
+    ) -> Self:
         """Create from bdecoded dict"""
         if decoded is not None:
             # we fix these incompatible types in str_keys
@@ -68,7 +74,11 @@ class TorrentBase(ConfiguredBase):
 
         if any([isinstance(k, bytes) for k in data]):
             data = str_keys(data)  # type: ignore
-        return cls(**data)
+
+        if context is None:
+            context = {}
+
+        return cls.model_validate(data, context=context)
 
     @property
     def torrent_version(self) -> TorrentVersion:
@@ -127,7 +137,7 @@ class TorrentBase(ConfiguredBase):
         self.info = cast(InfoDictV2, self.info)
         return FileTree.flatten_tree(self.info.file_tree)
 
-    def model_dump_torrent(self, mode: L["str", "binary"] = "binary", **kwargs: Any) -> dict:
+    def model_dump_torrent(self, mode: L["str", "binary"] = "str", **kwargs: Any) -> dict:
         """
         Dump the model into a dictionary that can be bencoded into a torrent
 
@@ -189,7 +199,7 @@ class Torrent(TorrentBase):
         return self
 
     def bencode(self) -> bytes:
-        dumped = self.model_dump(exclude_none=True, by_alias=True)
+        dumped = self.model_dump_torrent(mode="str")
         return bencode_rs.bencode(dumped)
 
     def write(self, path: Path) -> None:

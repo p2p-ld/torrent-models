@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, NotRequired, TypeAlias, Union, cast
+from typing import TYPE_CHECKING, Annotated, Any, NotRequired, TypeAlias, cast
 from typing import Literal as L
 
 from pydantic import AfterValidator, BaseModel, PlainSerializer
@@ -49,14 +49,25 @@ def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | l
     return value
 
 
+def _sort_keys(value: dict) -> dict:
+    res = {}
+    for k in sorted(value.keys()):
+        if isinstance(value[k], dict):
+            res[k] = _sort_keys(value[k])
+        else:
+            res[k] = value[k]
+    return res
+
+
 PieceLayerItem = Annotated[bytes, PlainSerializer(_serialize_v2_hash)]
 PieceLayersType = dict[SHA256Hash, PieceLayerItem]
 FileTreeItem = TypedDict(
     "FileTreeItem", {"length": int, "pieces root": NotRequired[PieceLayerItem]}
 )
-FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
-    "FileTreeType", dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]]  # type: ignore
+_FileTreeType = TypeAliasType(
+    "_FileTreeType", 'dict[bytes, dict[L[""], FileTreeItem] | _FileTreeType]'
 )
+FileTreeType: TypeAlias = Annotated[_FileTreeType, AfterValidator(_sort_keys)]
 
 
 class MerkleTree(BaseModel):

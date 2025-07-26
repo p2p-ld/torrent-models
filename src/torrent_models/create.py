@@ -10,17 +10,23 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Any, Self, cast
 
-from pydantic import AnyUrl, Field, model_validator
+from pydantic import Field, model_validator
 
 from torrent_models import Torrent, TorrentVersion
 from torrent_models.compat import get_size
-from torrent_models.const import EXCLUDE_FILES
+from torrent_models.const import DEFAULT_TORRENT_CREATOR, EXCLUDE_FILES
 from torrent_models.hashing import HybridHasher, V1Hasher, add_padfiles
 from torrent_models.hashing.v1 import sort_v1
 from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
 from torrent_models.torrent import TorrentBase
-from torrent_models.types import AbsPath, FileItem, TrackerFields, V1PieceLength, V2PieceLength
-from torrent_models.types.serdes import ByteUrl
+from torrent_models.types import (
+    AbsPath,
+    ByteStr,
+    FileItem,
+    TrackerFields,
+    V1PieceLength,
+    V2PieceLength,
+)
 from torrent_models.types.v2 import FileTree, PieceLayers
 
 
@@ -48,7 +54,8 @@ class TorrentCreate(TorrentBase):
     """
 
     # make parent types optional
-    announce: ByteUrl | None = None  # type: ignore
+    announce: ByteStr | None = None
+    created_by: ByteStr | None = Field(DEFAULT_TORRENT_CREATOR, alias="created by")
 
     # convenience fields
     info: InfoDictHybridCreate = Field(default_factory=InfoDictHybridCreate)  # type: ignore
@@ -66,7 +73,7 @@ class TorrentCreate(TorrentBase):
         default_factory=Path, description="Path to interpret paths relative to"
     )
 
-    trackers: list[ByteUrl] | list[list[ByteUrl]] | None = Field(
+    trackers: list[ByteStr] | list[list[ByteStr]] | None = Field(
         None,
         description="Convenience method for declaring tracker lists."
         "If a flat list, put each tracker in a separate tier."
@@ -315,13 +322,13 @@ class TorrentCreate(TorrentBase):
         if self.trackers:
             if isinstance(self.trackers[0], list):
 
-                self.trackers = cast(list[list[AnyUrl]], self.trackers)
+                self.trackers = cast(list[list[str]], self.trackers)
                 if len(self.trackers[0]) == 1 and len(self.trackers[0][0]) == 1:
                     return {"announce": self.trackers[0][0]}
                 else:
                     return {"announce": self.trackers[0][0], "announce-list": self.trackers}
             else:
-                self.trackers = cast(list[AnyUrl], self.trackers)
+                self.trackers = cast(list[str], self.trackers)
                 if len(self.trackers) == 1:
                     return {"announce": self.trackers[0]}
                 else:

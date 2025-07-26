@@ -175,6 +175,7 @@ The reasons we did not use these other tools and wrote this one:
 
 usage/torrent
 usage/cli
+usage/validation
 ```
 
 ```{toctree}
