@@ -292,6 +292,29 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
         return self
 
     @model_validator(mode="after")
+    def expected_n_pieces(self) -> Self:
+        """
+        We have the expected number of pieces given the sizes implied by our file dict.
+
+        Overrides the v1 to account for expected padding in hybrids
+        """
+        if self.pieces is None:
+            return self
+        if self.files is not None:
+            n_pieces = ceil(sum([f.length for f in self.files]) / self.piece_length)
+        else:
+            self.length = cast(int, self.length)
+            n_pieces = ceil(self.length / self.piece_length)
+
+        assert n_pieces == len(self.pieces), (
+            f"Expected {n_pieces} pieces for hybrid torrent with "
+            f"total length {self._total_length_v1()} and piece_length "
+            f"{self.piece_length}. "
+            f"Got {len(self.pieces)}"
+        )
+        return self
+
+    @model_validator(mode="after")
     def v1_v2_files_match(self) -> Self:
         """
         From BEP 052:

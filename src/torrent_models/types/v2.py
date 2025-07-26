@@ -49,14 +49,27 @@ def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | l
     return value
 
 
+def _sort_keys(value: dict) -> dict:
+    res = {}
+    for k in sorted(value.keys()):
+        if isinstance(value[k], dict):
+            res[k] = _sort_keys(value[k])
+        else:
+            res[k] = value[k]
+    return res
+
+
 PieceLayerItem = Annotated[bytes, PlainSerializer(_serialize_v2_hash)]
 PieceLayersType = dict[SHA256Hash, PieceLayerItem]
 FileTreeItem = TypedDict(
     "FileTreeItem", {"length": int, "pieces root": NotRequired[PieceLayerItem]}
 )
-FileTreeType: TypeAlias = TypeAliasType(  # type: ignore
-    "FileTreeType", dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]]  # type: ignore
-)
+FileTreeType: TypeAlias = Annotated[
+    TypeAliasType(  # type: ignore
+        "FileTreeType", dict[bytes, Union[dict[L[""], FileTreeItem], "FileTreeType"]]  # type: ignore
+    ),
+    AfterValidator(_sort_keys),
+]
 
 
 class MerkleTree(BaseModel):
