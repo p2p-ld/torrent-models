@@ -38,7 +38,7 @@ class InfoDictRoot(ConfiguredBase):
         decode to strings first
         """
         if isinstance(data, dict) and any([isinstance(k, bytes) for k in data]):
-            data = str_keys(data)  # type: ignore
+            data = str_keys(data)
         return data
 
 
@@ -69,7 +69,7 @@ class InfoDictV1Base(InfoDictRoot):
 
                 self._total_length = total
             else:
-                self._total_length = self.length
+                self._total_length = cast(int, self.length)
         return self._total_length
 
     @model_validator(mode="after")
