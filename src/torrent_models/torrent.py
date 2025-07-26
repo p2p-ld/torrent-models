@@ -15,6 +15,7 @@ from torrent_models.base import ConfiguredBase
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
 from torrent_models.info import (
     InfoDictHybrid,
+    InfodictUnionType,
     InfoDictV1,
     InfoDictV1Base,
     InfoDictV2,
@@ -40,7 +41,7 @@ class TorrentBase(ConfiguredBase):
     comment: ByteStr | None = None
     created_by: ByteStr | None = Field(DEFAULT_TORRENT_CREATOR, alias="created by")
     creation_date: UnixDatetime | None = Field(default=None, alias="creation date")
-    info: InfoDictV1 | InfoDictV2 | InfoDictHybrid = Field(..., union_mode="left_to_right")
+    info: InfodictUnionType
     piece_layers: PieceLayersType | None = Field(None, alias="piece layers")
     url_list: ListOrValue[ByteUrl] | None = Field(
         None, alias="url-list", description="List of webseeds"

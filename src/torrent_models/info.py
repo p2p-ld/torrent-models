@@ -1,13 +1,14 @@
 import hashlib
 from math import ceil
 from posixpath import join as posixjoin
-from typing import Annotated, Self, cast
+from typing import Annotated, Any, Self, TypeAlias, cast
 
 import bencode_rs
 from annotated_types import Gt, MinLen
-from pydantic import Field, ValidationInfo, model_validator
+from pydantic import BaseModel, Discriminator, Field, Tag, ValidationInfo, model_validator
 
 from torrent_models.base import ConfiguredBase
+from torrent_models.types import str_keys
 from torrent_models.types.serdes import ByteStr
 from torrent_models.types.v1 import FileItem, Pieces, V1PieceLength
 from torrent_models.types.v2 import FileTree, FileTreeItem, FileTreeType, V2PieceLength
@@ -28,6 +29,17 @@ class InfoDictRoot(ConfiguredBase):
     @property
     def v2_infohash(self) -> bytes | None:
         return None
+
+    @model_validator(mode="before")
+    @classmethod
+    def keys_as_strings(cls, data: Any) -> Any:
+        """
+        bencoded data comes as bytes, if we are trying to create directly from a bytestring dict,
+        decode to strings first
+        """
+        if isinstance(data, dict) and any([isinstance(k, bytes) for k in data]):
+            data = str_keys(data)  # type: ignore
+        return data
 
 
 class InfoDictV1Base(InfoDictRoot):
@@ -50,13 +62,14 @@ class InfoDictV1Base(InfoDictRoot):
 
     def _total_length_v1(self) -> int:
         if self._total_length is None:
-            total = 0
-            if not self.files:
-                return total
+            if self.files:
+                total = 0
+                for f in self.files:
+                    total += f.length
 
-            for f in self.files:
-                total += f.length
-            self._total_length = total
+                self._total_length = total
+            else:
+                self._total_length = self.length
         return self._total_length
 
     @model_validator(mode="after")
@@ -279,25 +292,6 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
         return self
 
     @model_validator(mode="after")
-    def expected_n_pieces(self) -> Self:
-        """We have the expected number of pieces given the sizes implied by our file dict"""
-        if self.pieces is None:
-            return self
-        if self.files is not None:
-            n_pieces = ceil(sum([f.length for f in self.files]) / self.piece_length)
-        else:
-            self.length = cast(int, self.length)
-            n_pieces = ceil(self.length / self.piece_length)
-
-        assert n_pieces == len(self.pieces), (
-            f"Expected {n_pieces} pieces for torrent with "
-            f"total length {self._total_length_v1()} and piece_length"
-            f"{self.piece_length}. "
-            f"Got {len(self.pieces)}"
-        )
-        return self
-
-    @model_validator(mode="after")
     def v1_v2_files_match(self) -> Self:
         """
         From BEP 052:
@@ -311,7 +305,7 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
         """
         v2_files = self.flat_tree
         if not self.files:
-            v1_files = [FileItem(path=self.name, length=self.length)]
+            v1_files = [FileItem(path=[self.name], length=self.length)]
         else:
             v1_files = [f for f in self.files if not f.is_padfile]
 
@@ -337,3 +331,48 @@ class InfoDictHybrid(InfoDictV2, InfoDictV1):
             )
 
         return self
+
+
+def infodict_discriminator(v: Any) -> str | None:
+    """
+    Discriminator function to use when detecting torrent version,
+    and thus which infodict model to validate against.
+
+    Use this instead of standard union discrimination for clearer error messages-
+    if there is a validation error in the infodict, since all infodict types will have been tried,
+    trivial errors from the two invalid infodict models will also be shown.
+
+    References:
+        https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions-with-callable-discriminator
+    """
+    # leave the `else` off all these switches to return None if nothing is found.
+    # this isn't a validation function, it's just to determine the infodict type
+    # if we can't do it here, we do it via validation.
+    if isinstance(v, dict):
+        v1 = "pieces" in v or b"pieces" in v
+        v2 = "file tree" in v or b"file tree" in v
+        if v1 and v2:
+            return "hybrid"
+        elif v1:
+            return "v1"
+        elif v2:
+            return "v2"
+
+    elif isinstance(v, BaseModel):
+        if isinstance(v, InfoDictHybrid | InfoDictHybridCreate):
+            return "hybrid"
+        elif isinstance(v, InfoDictV1Base):
+            return "v1"
+        elif isinstance(v, InfoDictV2Base):
+            return "v2"
+    return None
+
+
+InfodictUnionType: TypeAlias = Annotated[
+    (
+        Annotated[InfoDictV1, Tag("v1")]
+        | Annotated[InfoDictV2, Tag("v2")]
+        | Annotated[InfoDictHybrid, Tag("hybrid")]
+    ),
+    Discriminator(infodict_discriminator),
+]
