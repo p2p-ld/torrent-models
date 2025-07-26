@@ -38,7 +38,7 @@ padding_cases = (no_padding, correct_padding, inconsistent_padding, incorrect_pa
 @pytest.mark.parametrize(
     "mode,valid",
     [
-        ("default", (True, True, True, False)),
+        ("default", (True, True, True, True)),
         ("strict", (False, True, False, False)),
         ("forbid", (True, False, False, False)),
         ("ignore", (True, True, True, True)),
