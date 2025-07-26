@@ -22,7 +22,6 @@ from torrent_models.info import (
 )
 from torrent_models.types import (
     ByteStr,
-    ByteUrl,
     FileItem,
     FileTreeItem,
     ListOrValue,
@@ -47,7 +46,7 @@ class TorrentBase(ConfiguredBase):
     )
 
     @property
-    def webseeds(self) -> list[ByteUrl] | None:
+    def webseeds(self) -> list[str] | None:
         """alias to url_list"""
         return self.url_list
 

@@ -10,7 +10,7 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Any, Self, cast
 
-from pydantic import AnyUrl, Field, model_validator
+from pydantic import Field, model_validator
 
 from torrent_models import Torrent, TorrentVersion
 from torrent_models.compat import get_size
@@ -54,7 +54,7 @@ class TorrentCreate(TorrentBase):
     """
 
     # make parent types optional
-    announce: ByteStr | None = None  # type: ignore
+    announce: ByteStr | None = None
     created_by: ByteStr | None = Field(DEFAULT_TORRENT_CREATOR, alias="created by")
 
     # convenience fields
@@ -322,13 +322,13 @@ class TorrentCreate(TorrentBase):
         if self.trackers:
             if isinstance(self.trackers[0], list):
 
-                self.trackers = cast(list[list[AnyUrl]], self.trackers)
+                self.trackers = cast(list[list[str]], self.trackers)
                 if len(self.trackers[0]) == 1 and len(self.trackers[0][0]) == 1:
                     return {"announce": self.trackers[0][0]}
                 else:
                     return {"announce": self.trackers[0][0], "announce-list": self.trackers}
             else:
-                self.trackers = cast(list[AnyUrl], self.trackers)
+                self.trackers = cast(list[str], self.trackers)
                 if len(self.trackers) == 1:
                     return {"announce": self.trackers[0]}
                 else:
