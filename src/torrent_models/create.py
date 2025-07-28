@@ -115,7 +115,7 @@ class TorrentCreate(TorrentBase):
         return self
 
     def generate(
-        self, version: TorrentVersion | str, n_processes: int | None = None, progress: bool = False
+        self, version: TorrentVersion | str, n_processes: int | None = 1, progress: bool = False
     ) -> Torrent:
         """
         Generate a torrent file, hashing its pieces and transforming convenience values

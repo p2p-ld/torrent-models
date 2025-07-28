@@ -98,6 +98,13 @@ def main() -> None:
     type=click.Path(exists=False),
     help=".torrent file to write to. Otherwise to stdout",
 )
+@click.option(
+    "-n",
+    "--n-cpus",
+    default=1,
+    show_default=True,
+    help="Number of CPUs to use for parallel processing. ",
+)
 def make(
     path: Path,
     tracker: list[str] | tuple[str] | None = None,
@@ -109,6 +116,7 @@ def make(
     version: L["v1", "v2", "hybrid"] = "hybrid",
     progress: bool = True,
     output: Path | None = None,
+    n_cpus: int = 1,
 ) -> None:
     path = Path(path)
     files = list_files(path)
@@ -119,9 +127,11 @@ def make(
         path_root=path,
         comment=comment,
         creator=creator,
+        url_list=webseed,
+        similar=similar,
         info=InfoDictHybridCreate(piece_length=piece_size, name=path.name),
     )
-    generated = created.generate(version=version, progress=progress)
+    generated = created.generate(version=version, progress=progress, n_processes=n_cpus)
     bencoded = generated.bencode()
     if output:
         with open(output, "wb") as f:
@@ -182,9 +192,9 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
     v1_infohash = t.v1_infohash
     v2_infohash = t.v2_infohash
     if v1_infohash:
-        summary["V1 Infohash"] = v1_infohash.hex()
+        summary["V1 Infohash"] = v1_infohash
     if v2_infohash:
-        summary["V2 Infohash"] = v2_infohash.hex()
+        summary["V2 Infohash"] = v2_infohash
     table = Table(title=str(torrent.name), show_header=False)
     table.add_column("", justify="left", style="magenta bold", no_wrap=True)
     table.add_column("")

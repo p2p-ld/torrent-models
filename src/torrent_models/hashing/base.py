@@ -1,9 +1,8 @@
-import asyncio
 import hashlib
 import multiprocessing as mp
 from abc import abstractmethod
 from collections import deque
-from collections.abc import AsyncGenerator
+from collections.abc import Generator
 from functools import cached_property
 from itertools import count
 from math import ceil
@@ -13,12 +12,11 @@ from pathlib import Path
 from typing import Any, Self, TypeAlias, cast, overload
 from typing import Literal as L
 
-from anyio import open_file
 from pydantic import BaseModel, Field, model_validator
 from tqdm import tqdm
 
 from torrent_models.compat import get_size
-from torrent_models.const import BLOCK_SIZE
+from torrent_models.const import BLOCK_SIZE, MiB
 from torrent_models.types import AbsPath, RelPath, V1PieceLength, V2PieceLength
 
 
@@ -48,13 +46,13 @@ class Hash(BaseModel):
     )
 
 
-async def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> AsyncGenerator[Chunk, None]:
+def iter_blocks(path: Path, read_size: int = BLOCK_SIZE) -> Generator[Chunk, None]:
     """Iterate 16KiB blocks"""
     counter = count()
     last_size = read_size
-    async with await open_file(path, "rb") as f:
+    with open(path, "rb") as f:
         while last_size == read_size:
-            read = await f.read(read_size)
+            read = f.read(read_size)
             if len(read) > 0:
                 yield Chunk.model_construct(idx=next(counter), path=path, chunk=read)
             last_size = len(read)
@@ -70,7 +68,7 @@ class HasherBase(BaseModel):
     path_root: AbsPath
     """Directory containing paths to hash"""
     piece_length: V1PieceLength | V2PieceLength
-    n_processes: int = Field(default_factory=mp.cpu_count)
+    n_processes: int = 1
     progress: bool = False
     """Show progress"""
     read_size: int | None = None
@@ -103,8 +101,14 @@ class HasherBase(BaseModel):
             idx=chunk.idx,
         )
 
+    @overload
+    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]: ...
+
+    @overload
+    def update(self, chunk: Chunk, pool: None) -> list[Hash]: ...
+
     @abstractmethod
-    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+    def update(self, chunk: Chunk, pool: PoolType | None = None) -> list[AsyncResult] | list[Hash]:
         """
         Update hasher with a new chunk of data, returning a list of AsyncResults to fetch hashes
         """
@@ -113,14 +117,20 @@ class HasherBase(BaseModel):
     @model_validator(mode="after")
     def read_size_defaults_piece_size(self) -> Self:
         if not self.read_size:
-            self.read_size = self.piece_length
+            self.read_size = max(self.piece_length, 1 * MiB)
         return self
 
     def complete(self, hashes: list[Hash]) -> list[Hash]:
         """After hashing, do any postprocessing to yield the desired output"""
         return hashes
 
-    def _after_read(self, pool: PoolType) -> list[AsyncResult]:
+    @overload
+    def _after_read(self, pool: PoolType) -> list[AsyncResult]: ...
+
+    @overload
+    def _after_read(self, pool: None) -> list[Hash]: ...
+
+    def _after_read(self, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
         """Optional step after reading completes"""
         return []
 
@@ -171,40 +181,57 @@ class HasherBase(BaseModel):
             self.read_size = cast(int, self.read_size)
             return self.memory_limit // self.read_size
 
-    async def process_async(self) -> list[Hash]:
-        hashes = await self.hash()
+    def process(self) -> list[Hash]:
+        hashes = self.hash()
         return self.complete(hashes)
 
-    def process(self) -> list[Hash]:
-        try:
-            return asyncio.run(self.process_async())
-        except RuntimeError as e:
-            if "from a running event loop" in str(e):
-                import nest_asyncio  # type: ignore
-
-                nest_asyncio.apply()
-                loop = asyncio.get_event_loop()
-                return loop.run_until_complete(self.process_async())
-            else:
-                raise e
-
-    async def hash(self) -> list[Hash]:
+    def hash(self) -> list[Hash]:
         """
         Hash all files
         """
+        if self.n_processes > 1:
+            return self._hash_mp()
+        else:
+            return self._hash()
+
+    def _hash(self) -> list[Hash]:
+        pbars = self._pbars()
+
+        hashes = []
+        try:
+            for path in self.paths:
+
+                pbars.file.set_description(str(path))
+                self.read_size = cast(int, self.read_size)
+                for chunk in iter_blocks(self.path_root / path, read_size=self.read_size):
+                    pbars.read.update()
+                    new_hashes = self.update(chunk, None)
+                    hashes.extend(new_hashes)
+                    pbars.hash.update(len(new_hashes))
+
+                pbars.file.update()
+
+            new_hashes = self._after_read(None)
+            hashes.extend(new_hashes)
+            pbars.hash.update(len(new_hashes))
+
+        finally:
+            pbars.close()
+
+        return hashes
+
+    def _hash_mp(self) -> list[Hash]:
         with mp.Pool(self.n_processes) as pool:
             pbars = self._pbars()
 
             hashes = []
             results: deque[ApplyResult] = deque()
-            # if "1_1073741824_equal0" in str(self.path_root):
-            #     breakpoint()
             try:
                 for path in self.paths:
 
                     pbars.file.set_description(str(path))
                     self.read_size = cast(int, self.read_size)
-                    async for chunk in iter_blocks(self.path_root / path, read_size=self.read_size):
+                    for chunk in iter_blocks(self.path_root / path, read_size=self.read_size):
                         pbars.read.update()
                         res = self.update(chunk, pool)
                         results.extend(res)

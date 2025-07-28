@@ -29,10 +29,10 @@ def test_infohash(tfile: Path):
     if t.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
         assert t.v1_infohash is not None
         assert lt_torrent.info_hashes.has_v1()
-        assert t.v1_infohash == lt_torrent.info_hashes.v1.to_bytes()
+        assert t.v1_infohash == lt_torrent.info_hashes.v1.to_bytes().hex()
     if t.torrent_version in (TorrentVersion.v2, TorrentVersion.hybrid):
         assert t.v2_infohash is not None
         assert lt_torrent.info_hashes.has_v2()
-        assert t.v2_infohash == lt_torrent.info_hashes.v2.to_bytes()
+        assert t.v2_infohash == lt_torrent.info_hashes.v2.to_bytes().hex()
     if t.torrent_version not in TorrentVersion:
         raise ValueError("Torrent not detecting version")

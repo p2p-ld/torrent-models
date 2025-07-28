@@ -17,7 +17,7 @@ from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import cast
+from typing import cast, overload
 
 from pydantic import PrivateAttr, field_validator
 
@@ -70,14 +70,25 @@ class HybridHasher(V1Hasher, V2Hasher):
     def total_hashes(self) -> int:
         return self._v2_total_hashes() + self._v1_total_hashes_hybrid()
 
-    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+    @overload
+    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]: ...
+
+    @overload
+    def update(self, chunk: Chunk, pool: None) -> list[Hash]: ...
+
+    def update(self, chunk: Chunk, pool: PoolType | None = None) -> list[AsyncResult] | list[Hash]:
         res = self._update_v2(chunk, pool)
-        res.extend(self._update_v1(chunk, pool))
+        res.extend(self._update_v1(chunk, pool))  # type: ignore
         return res
 
-    def _on_file_end(self, pool: PoolType) -> list[AsyncResult]:
+    @overload
+    def _on_file_end(self, pool: PoolType) -> list[AsyncResult]: ...
+
+    @overload
+    def _on_file_end(self, pool: None) -> list[Hash]: ...
+
+    def _on_file_end(self, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
         """Pad and submit buffer"""
-        # breakpoint()
         if len(self._buffer) == 0:
             return []
         self._buffer.extend(bytes(self.piece_length - len(self._buffer)))
@@ -86,18 +97,18 @@ class HybridHasher(V1Hasher, V2Hasher):
             idx=next(self._v1_counter), path=self._last_path, chunk=bytes(self._buffer)
         )
         self._buffer = bytearray()
-        return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]
+        if pool:
+            return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]
+        else:
+            return [self._hash_v1(chunk, self.path_root)]
 
-    def _submit_v1(self, pool: PoolType) -> AsyncResult:
-        piece = b"".join([c.chunk for c in self._v1_chunks])
+    @overload
+    def _after_read(self, pool: PoolType) -> list[AsyncResult]: ...
 
-        # append padding
-        self._last_path = cast(Path, self._last_path)
-        piece = b"".join([piece, bytes(self.piece_length - len(piece))])
-        chunk = Chunk.model_construct(idx=next(self._v1_counter), path=self._last_path, chunk=piece)
-        return pool.apply_async(self._hash_v1, args=(chunk, self.path_root))
+    @overload
+    def _after_read(self, pool: None) -> list[Hash]: ...
 
-    def _after_read(self, pool: PoolType) -> list[AsyncResult]:
+    def _after_read(self, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
         """Submit any remaining v1 pieces from the last file"""
         res = self._on_file_end(pool)
         return res

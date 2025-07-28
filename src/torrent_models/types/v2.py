@@ -34,9 +34,9 @@ Per BEP 52: "must be a power of two and at least 16KiB"
 """
 
 
-def _serialize_v2_hash(value: bytes, info: SerializationInfo) -> bytes | str | list[str]:
+def _serialize_v2_hash(value: bytes | str, info: SerializationInfo) -> bytes | str | list[str]:
     if info.context and info.context.get("mode") == "print":
-        ret: str = value.hex()
+        ret = value.hex() if isinstance(value, bytes) else value
 
         if info.context.get("hash_truncate"):
             ret = ret[0:8]

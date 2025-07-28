@@ -23,11 +23,11 @@ class InfoDictRoot(ConfiguredBase):
     _total_length: int | None = None
 
     @property
-    def v1_infohash(self) -> bytes | None:
+    def v1_infohash(self) -> str | None:
         return None
 
     @property
-    def v2_infohash(self) -> bytes | None:
+    def v2_infohash(self) -> str | None:
         return None
 
     @model_validator(mode="before")
@@ -49,11 +49,11 @@ class InfoDictV1Base(InfoDictRoot):
     piece_length: V1PieceLength | None = Field(alias="piece length")
 
     @property
-    def v1_infohash(self) -> bytes:
-        """SHA-1 hash of the infodict"""
+    def v1_infohash(self) -> str:
+        """hex-encoded SHA-1 hash of the infodict"""
         dumped = self.model_dump(exclude_none=True, by_alias=True)
         bencoded = bencode_rs.bencode(dumped)
-        return hashlib.sha1(bencoded).digest()
+        return hashlib.sha1(bencoded).hexdigest()
 
     @property
     def total_length(self) -> int:
@@ -215,11 +215,11 @@ class InfoDictV2Base(InfoDictRoot):
         return self
 
     @property
-    def v2_infohash(self) -> bytes:
-        """SHA-256 hash of the infodict"""
+    def v2_infohash(self) -> str:
+        """hex-encoded SHA-256 hash of the infodict"""
         dumped = self.model_dump(exclude_none=True, by_alias=True)
         bencoded = bencode_rs.bencode(dumped)
-        return hashlib.sha256(bencoded).digest()
+        return hashlib.sha256(bencoded).hexdigest()
 
     @property
     def flat_tree(self) -> dict[str, FileTreeItem]:

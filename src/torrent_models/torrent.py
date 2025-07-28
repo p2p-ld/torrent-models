@@ -95,11 +95,13 @@ class TorrentBase(ConfiguredBase):
             return TorrentVersion.hybrid
 
     @property
-    def v1_infohash(self) -> bytes | None:
+    def v1_infohash(self) -> str | None:
+        """hex-encoded SHA1 of the infodict"""
         return self.info.v1_infohash
 
     @property
-    def v2_infohash(self) -> bytes | None:
+    def v2_infohash(self) -> str | None:
+        """hex-encoded SHA256 of the infodict"""
         return self.info.v2_infohash
 
     @property
@@ -291,9 +293,9 @@ def pprint(t: TorrentBase, verbose: int = 0) -> None:
     v1_infohash = t.v1_infohash
     v2_infohash = t.v2_infohash
     if v1_infohash:
-        summary["V1 Infohash"] = v1_infohash.hex()
+        summary["V1 Infohash"] = v1_infohash
     if v2_infohash:
-        summary["V2 Infohash"] = v2_infohash.hex()
+        summary["V2 Infohash"] = v2_infohash
     table = Table(title=t.info.name, show_header=False)
     table.add_column("", justify="left", style="magenta bold", no_wrap=True)
     table.add_column("")

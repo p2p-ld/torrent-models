@@ -7,7 +7,8 @@ from torrent_models.types.common import TorrentVersion
 from .conftest import DATA_DIR
 
 
-def test_create_basic(version):
+@pytest.mark.parametrize("n_processes", [1, None])
+def test_create_basic(version, n_processes):
     """
     Test that we can recreate the basic torrents exactly
     """
@@ -24,8 +25,7 @@ def test_create_basic(version):
         url_list="https://example.com/files",
         info={"source": "source"},
     )
-    generated = create.generate(version=version)
-    # pdb.set_trace()
+    generated = create.generate(version=version, n_processes=n_processes)
     assert generated.torrent_version == TorrentVersion.__members__[version]
     bencoded = generated.bencode()
     with open(DATA_DIR / f"qbt_basic_{version}.torrent", "rb") as f:

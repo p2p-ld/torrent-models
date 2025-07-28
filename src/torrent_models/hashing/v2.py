@@ -5,6 +5,7 @@ from itertools import count
 from multiprocessing.pool import AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
+from typing import overload
 
 from pydantic import PrivateAttr, field_validator
 
@@ -27,16 +28,31 @@ class V2Hasher(HasherBase):
         assert value == BLOCK_SIZE
         return value
 
-    def _update_v2(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+    @overload
+    def _update_v2(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]: ...
+
+    @overload
+    def _update_v2(self, chunk: Chunk, pool: None) -> list[Hash]: ...
+
+    def _update_v2(self, chunk: Chunk, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
         chunks = [
             Chunk.model_construct(
                 path=chunk.path, chunk=chunk.chunk[i : i + BLOCK_SIZE], idx=next(self._v2_counter)
             )
             for i in range(0, len(chunk.chunk), BLOCK_SIZE)
         ]
-        return [pool.apply_async(self._hash_v2, (c, self.path_root)) for c in chunks]
+        if pool:
+            return [pool.apply_async(self._hash_v2, (c, self.path_root)) for c in chunks]
+        else:
+            return [self._hash_v2(chunk, self.path_root) for chunk in chunks]
 
-    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]:
+    @overload
+    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]: ...
+
+    @overload
+    def update(self, chunk: Chunk, pool: None) -> list[Hash]: ...
+
+    def update(self, chunk: Chunk, pool: PoolType | None = None) -> list[AsyncResult] | list[Hash]:
         return self._update_v2(chunk, pool)
 
     @cached_property
