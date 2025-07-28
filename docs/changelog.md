@@ -2,6 +2,15 @@
 
 ## v0.2.*
 
+### v0.2.1 - 2025-07-27
+
+bugfix
+- raise error in clean_files when files are missing or misspecified, 
+- rather than allowing to fall through to the generation process.
+
+perf:
+- cache computed infohashes rather than computing fresh each time.
+
 ### v0.2.0 - 2025-07-27
 
 Version deployed with initial integration with sciop

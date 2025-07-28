@@ -379,6 +379,10 @@ def clean_files(paths: list[Path], relative_to: Path, v1: bool = False) -> list[
         else:
             abs_f = relative_to / f
             rel_f = f
+        if not abs_f.exists():
+            raise FileNotFoundError(
+                f"File {abs_f} does not exist for path {f} relative to {relative_to}"
+            )
         if abs_f.is_file() and f.name not in EXCLUDE_FILES:
             cleaned.append(rel_f)
     cleaned = sort_v1(cleaned) if v1 else sorted(cleaned, key=lambda f: f.as_posix())

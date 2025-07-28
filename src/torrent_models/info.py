@@ -48,12 +48,16 @@ class InfoDictV1Base(InfoDictRoot):
     files: Annotated[list[FileItem], MinLen(1)] | None = Field(None)
     piece_length: V1PieceLength | None = Field(alias="piece length")
 
+    _v1_infohash: str | None = None
+
     @property
     def v1_infohash(self) -> str:
         """hex-encoded SHA-1 hash of the infodict"""
-        dumped = self.model_dump(exclude_none=True, by_alias=True)
-        bencoded = bencode_rs.bencode(dumped)
-        return hashlib.sha1(bencoded).hexdigest()
+        if not self._v1_infohash:
+            dumped = self.model_dump(exclude_none=True, by_alias=True)
+            bencoded = bencode_rs.bencode(dumped)
+            self._v1_infohash = hashlib.sha1(bencoded).hexdigest()
+        return self._v1_infohash
 
     @property
     def total_length(self) -> int:
@@ -205,6 +209,8 @@ class InfoDictV2Base(InfoDictRoot):
     file_tree: FileTreeType | None = Field(None, alias="file tree")
     piece_length: V2PieceLength | None = Field(alias="piece length")
 
+    _v2_infohash: str | None = None
+
     @model_validator(mode="after")
     def disallowed_fields(self) -> Self:
         """
@@ -217,9 +223,11 @@ class InfoDictV2Base(InfoDictRoot):
     @property
     def v2_infohash(self) -> str:
         """hex-encoded SHA-256 hash of the infodict"""
-        dumped = self.model_dump(exclude_none=True, by_alias=True)
-        bencoded = bencode_rs.bencode(dumped)
-        return hashlib.sha256(bencoded).hexdigest()
+        if self._v2_infohash is None:
+            dumped = self.model_dump(exclude_none=True, by_alias=True)
+            bencoded = bencode_rs.bencode(dumped)
+            self._v2_infohash = hashlib.sha256(bencoded).hexdigest()
+        return self._v2_infohash
 
     @property
     def flat_tree(self) -> dict[str, FileTreeItem]:
