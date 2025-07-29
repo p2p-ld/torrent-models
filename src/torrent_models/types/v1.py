@@ -2,6 +2,7 @@
 Types used only in v1 (and hybrid) torrents
 """
 
+import hashlib
 from typing import Annotated, Self
 
 from annotated_types import Ge
@@ -15,7 +16,7 @@ from pydantic import (
 from pydantic_core.core_schema import SerializationInfo
 
 from torrent_models.base import ConfiguredBase
-from torrent_models.types.common import FilePart, SHA1Hash, _power_of_two
+from torrent_models.types.common import FilePart, PieceRange, SHA1Hash, _power_of_two
 
 V1PieceLength = Annotated[int, AfterValidator(_power_of_two)]
 """
@@ -78,3 +79,40 @@ class FileItem(ConfiguredBase):
                 str(self.length),
             ], "strict mode - padfiles must be named `.pad/{length}`"
         return self
+
+
+class FileItemRange(FileItem):
+    """A File Item with a byte range, for use with V1PieceRange"""
+
+    range_start: int
+    range_end: int
+
+
+class V1PieceRange(PieceRange):
+    """
+    Paths and byte ranges that correspond to a single v1
+    """
+
+    ranges: list[FileItemRange]
+    piece_hash: SHA1Hash
+
+    def validate_data(self, data: list[bytes]) -> bool:
+        """
+        Validate data against hash by concatenating bytes and comparing the SHA1 hash
+
+        The user is responsible for providing all-zero bytestrings
+        for any padding files in the indicated ranges
+        """
+        assert len(data) == len(
+            self.ranges
+        ), "Need to provide data chunks that correspond to each of the indicated file ranges"
+        for range, d in zip(self.ranges, data):
+            assert (range.range_end - range.range_start) == len(d), (
+                "Provided data chunks must match the sizes indicated by the "
+                "start and end ranges of each file range"
+            )
+
+        hasher = hashlib.new("sha1")
+        for d in data:
+            hasher.update(d)
+        return self.piece_hash == hasher.digest()

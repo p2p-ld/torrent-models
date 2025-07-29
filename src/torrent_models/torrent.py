@@ -32,7 +32,8 @@ from torrent_models.types import (
     UnixDatetime,
     str_keys,
 )
-from torrent_models.types.v2 import FileTree
+from torrent_models.types.v1 import FileItemRange, V1PieceRange
+from torrent_models.types.v2 import FileTree, V2PieceRange
 
 
 class TorrentBase(ConfiguredBase):
@@ -213,6 +214,158 @@ class Torrent(TorrentBase):
     A valid torrent file, including hashes.
     """
 
+    @property
+    def file_size(self) -> int:
+        """Size of the generated torrent file, in bytes"""
+        return len(self.bencode())
+
+    def bencode(self) -> bytes:
+        dumped = self.model_dump_torrent(mode="str")
+        return bencode_rs.bencode(dumped)
+
+    def write(self, path: Path) -> None:
+        """Write the torrent to disk"""
+        with open(path, "wb") as f:
+            f.write(self.bencode())
+
+    def v1_piece_range(self, piece_idx: int) -> V1PieceRange:
+        """Get a v1 piece range from the piece index"""
+        assert self.torrent_version in (
+            TorrentVersion.v1,
+            TorrentVersion.hybrid,
+        ), "Cannot get v1 piece ranges for v2-only torrents"
+        self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
+        if piece_idx >= len(self.info.pieces):
+            raise IndexError(
+                f"Cannot get piece index {piece_idx} for torrent with "
+                f"{len(self.info.pieces)} pieces"
+            )
+
+        start_range = piece_idx * self.info.piece_length
+        end_range = (piece_idx + 1) * self.info.piece_length
+
+        if self.info.files is None:
+            self.info.length = cast(int, self.info.length)
+            # single file torrent
+            return V1PieceRange(
+                piece_idx=piece_idx,
+                piece_hash=self.info.pieces[piece_idx],
+                ranges=[
+                    FileItemRange(
+                        path=[self.info.name],
+                        length=self.info.length,
+                        range_start=start_range,
+                        range_end=min(self.info.length, end_range),
+                    )
+                ],
+            )
+
+        size_idx = 0
+        file_idx = 0
+        found_len = 0
+        ranges = []
+        # first, find file where range starts
+        # could probably be combined with the second step,
+        # but just getting this working before worrying about aesthetics
+        for i, file in enumerate(self.info.files):
+            if file.length + size_idx > start_range:
+                # range starts in this file
+                # create the range from the first file
+                file_range_start = start_range % size_idx if size_idx > 0 else start_range
+                file_range_end = min(file.length, file_range_start + self.info.piece_length)
+                found_len += file_range_end - file_range_start
+                ranges.append(
+                    FileItemRange(
+                        path=file.path,
+                        attr=file.attr,
+                        length=file.length,
+                        range_start=file_range_start,
+                        range_end=file_range_end,
+                    )
+                )
+
+                # index additional files starting at the next file
+                file_idx = i + 1
+                break
+            else:
+                size_idx += file.length
+
+        # then, iterate through files until the range or files are exhausted
+        while found_len < self.info.piece_length and file_idx < len(self.info.files):
+            file = self.info.files[file_idx]
+            file_range_start = 0
+            file_range_end = min(file.length, self.info.piece_length - found_len)
+
+            ranges.append(
+                FileItemRange(
+                    path=file.path,
+                    attr=file.attr,
+                    length=file.length,
+                    range_start=file_range_start,
+                    range_end=file_range_end,
+                )
+            )
+            found_len += file_range_end - file_range_start
+            file_idx += 1
+        return V1PieceRange(
+            piece_idx=piece_idx, ranges=ranges, piece_hash=self.info.pieces[piece_idx]
+        )
+
+    def v2_piece_range(self, file: str, piece_idx: int = 0) -> V2PieceRange:
+        """
+        Get a v2 piece range from a file path and optional piece index.
+
+        If `piece_idx` is not provided (default to 0)...
+
+        - If the file is larger than the piece length, gets the 0th piece.
+        - If the file is smaller than the piece length,
+          the range corresponds to the whole file, the hash is the root hash,
+          and piece_idx is ignored.
+        """
+        assert self.torrent_version in (
+            TorrentVersion.v2,
+            TorrentVersion.hybrid,
+        ), "Cannot get v2 piece ranges from a v1-only torrent"
+
+        # satisfy mypy...
+        self.info = cast(InfoDictV2 | InfoDictHybrid, self.info)
+        flat_files = self.flat_files
+        flat_files = cast(dict[str, FileTreeItem], flat_files)
+        self.piece_layers = cast(PieceLayersType, self.piece_layers)
+
+        if file not in flat_files:
+            raise ValueError(f"file {file} not found in torrent!")
+
+        root = flat_files[file]["pieces root"]
+
+        if root not in self.piece_layers:
+            # smaller then piece_length, piece range is whole file
+            return V2PieceRange(
+                piece_idx=0,
+                path=file,
+                range_start=0,
+                range_end=flat_files[file]["length"],
+                piece_length=self.info.piece_length,
+                file_size=flat_files[file]["length"],
+                root_hash=root,
+            )
+        else:
+            if piece_idx >= len(self.piece_layers[root]):
+                raise IndexError(
+                    f"piece index {piece_idx} is out of range for file with "
+                    f"{len(self.piece_layers[root])} pieces"
+                )
+            return V2PieceRange(
+                piece_idx=piece_idx,
+                path=file,
+                range_start=piece_idx * self.info.piece_length,
+                range_end=min(flat_files[file]["length"], (piece_idx + 1) * self.info.piece_length),
+                piece_length=self.info.piece_length,
+                file_size=flat_files[file]["length"],
+                piece_hash=self.piece_layers[root][piece_idx],
+                root_hash=root,
+            )
+
     @model_validator(mode="after")
     def piece_layers_if_v2(self) -> Self:
         """If we are a v2 or hybrid torrent, we should have piece layers"""
@@ -228,7 +381,7 @@ class Torrent(TorrentBase):
         """
         if self.torrent_version == TorrentVersion.v1:
             return self
-        self.piece_layers = cast(dict[bytes, bytes], self.piece_layers)
+        self.piece_layers = cast(PieceLayersType, self.piece_layers)
         self.info = cast(InfoDictV2 | InfoDictHybrid, self.info)
         for path, file_info in self.info.flat_tree.items():
             if file_info["length"] > self.info.piece_length:
@@ -237,27 +390,13 @@ class Torrent(TorrentBase):
                     f"Expected to find: {file_info['pieces root']}"  # type: ignore
                 )
                 expected_pieces = ceil(file_info["length"] / self.info.piece_length)
-                assert len(self.piece_layers[file_info["pieces root"]]) == expected_pieces * 32, (
+                assert len(self.piece_layers[file_info["pieces root"]]) == expected_pieces, (
                     f"File {path} does not have the correct number of piece hashes. "
                     f"Expected {expected_pieces} hashes from file length {file_info['length']} "
                     f"and piece length {self.info.piece_length}. "
-                    f"Got {len(self.piece_layers[file_info['pieces root']]) / 32}"
+                    f"Got {len(self.piece_layers[file_info['pieces root']])}"
                 )
         return self
-
-    def bencode(self) -> bytes:
-        dumped = self.model_dump_torrent(mode="str")
-        return bencode_rs.bencode(dumped)
-
-    def write(self, path: Path) -> None:
-        """Write the torrent to disk"""
-        with open(path, "wb") as f:
-            f.write(self.bencode())
-
-    @property
-    def file_size(self) -> int:
-        """Size of the generated torrent file, in bytes"""
-        return len(self.bencode())
 
 
 def pprint(t: TorrentBase, verbose: int = 0) -> None:

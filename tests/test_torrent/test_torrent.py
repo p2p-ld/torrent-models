@@ -6,7 +6,7 @@ import pytest
 from torrent_models import Torrent
 from torrent_models.types.common import TorrentVersion
 
-from .conftest import DATA_DIR
+from ..conftest import DATA_DIR
 
 ALL_TORRENTS = list(tf for tf in DATA_DIR.rglob("*.torrent") if "giant" not in tf.name)
 

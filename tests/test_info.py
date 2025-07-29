@@ -15,7 +15,7 @@ v2_infodict = {
     b"name": b"sup.exe",
     b"meta version": 2,
     b"piece length": 16 * KiB,
-    b"file tree": {b"sup.exe": {b"": {b"length": 16 * KiB, b"pieces root": b"0" * 40}}},
+    b"file tree": {b"sup.exe": {b"": {b"length": 16 * KiB, b"pieces root": b"0" * 32}}},
 }
 hybrid_infodict = {**v1_infodict, **v2_infodict}
 infodicts = {"v1": v1_infodict, "v2": v2_infodict, "hybrid": hybrid_infodict}

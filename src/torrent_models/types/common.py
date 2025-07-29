@@ -1,10 +1,11 @@
 import sys
+from abc import abstractmethod
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, NotRequired, TypeAlias
 
 from annotated_types import Ge, Len
-from pydantic import AfterValidator, AnyUrl, Field
+from pydantic import AfterValidator, AnyUrl, BaseModel, Field
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types.serdes import ByteStr
@@ -81,3 +82,21 @@ class GenericFileItem(ConfiguredBase):
     length: Annotated[int, Ge(0)]
     attr: bytes | None = None
     pieces_root: bytes | None = Field(None, alias="pieces root")
+
+
+class PieceRange(BaseModel):
+    """
+    Parent model for v1 and v2 piece ranges.
+
+    Piece ranges provide some description of paths and byte ranges that correspond to a single
+    verifiable piece and a method for verifying data against them.
+
+    Since v1 and v2 data models are substantially different,
+    their sub-models are also quite different, but provide a common interface through this ABC
+    """
+
+    piece_idx: int
+
+    @abstractmethod
+    def validate_data(self, data: list[bytes]) -> bool:
+        """Check that the provided data matches the piece or root hash"""

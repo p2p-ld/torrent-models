@@ -2,6 +2,7 @@
 Types used only in v2 (and hybrid) torrents
 """
 
+import hashlib
 import multiprocessing as mp
 from copy import deepcopy
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, NotRequired, TypeAlias, cast
 from typing import Literal as L
 
-from pydantic import AfterValidator, BaseModel, PlainSerializer
+from pydantic import AfterValidator, BaseModel, BeforeValidator, PlainSerializer
 from pydantic_core.core_schema import SerializationInfo
 from typing_extensions import TypeAliasType, TypedDict
 
@@ -19,6 +20,7 @@ from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE
 from torrent_models.types.common import (
     AbsPath,
+    PieceRange,
     RelPath,
     SHA256Hash,
     _divisible_by_16kib,
@@ -34,19 +36,22 @@ Per BEP 52: "must be a power of two and at least 16KiB"
 """
 
 
-def _serialize_v2_hash(value: bytes | str, info: SerializationInfo) -> bytes | str | list[str]:
+def _validate_v2_hash(value: bytes | list[bytes]) -> list[bytes]:
+    if isinstance(value, bytes):
+        assert len(value) % 32 == 0, "v2 piece layer length must be divisible by 32"
+        value = [value[i : i + 32] for i in range(0, len(value), 32)]
+    return value
+
+
+def _serialize_v2_hash(value: list[bytes], info: SerializationInfo) -> bytes | str | list[str]:
     if info.context and info.context.get("mode") == "print":
-        ret = value.hex() if isinstance(value, bytes) else value
+        ret = [v.hex() if isinstance(v, bytes) else v for v in value]
 
         if info.context.get("hash_truncate"):
-            ret = ret[0:8]
-        # split layers
-        if len(ret) > 64:
-            return [ret[i : i + 64] for i in range(0, len(ret), 64)]
-        else:
-            return ret
-
-    return value
+            ret = [v[0:8] for v in ret]
+        return ret
+    else:
+        return b"".join(value)
 
 
 def _sort_keys(value: dict) -> dict:
@@ -59,11 +64,11 @@ def _sort_keys(value: dict) -> dict:
     return res
 
 
-PieceLayerItem = Annotated[bytes, PlainSerializer(_serialize_v2_hash)]
+PieceLayerItem = Annotated[
+    list[SHA256Hash], BeforeValidator(_validate_v2_hash), PlainSerializer(_serialize_v2_hash)
+]
 PieceLayersType = dict[SHA256Hash, PieceLayerItem]
-FileTreeItem = TypedDict(
-    "FileTreeItem", {"length": int, "pieces root": NotRequired[PieceLayerItem]}
-)
+FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[SHA256Hash]})
 _FileTreeType = TypeAliasType(
     "_FileTreeType", 'dict[bytes, dict[L[""], FileTreeItem] | _FileTreeType]'
 )
@@ -370,9 +375,7 @@ class PieceLayers:
             [lengths[0] == ln for ln in lengths]
         ), "Differing piece lengths in supplied merkle trees!"
         piece_length = lengths[0]
-        piece_layers = {
-            tree.root_hash: b"".join(tree.piece_hashes) for tree in trees if tree.piece_hashes
-        }
+        piece_layers = {tree.root_hash: tree.piece_hashes for tree in trees if tree.piece_hashes}
         file_tree = FileTree.from_trees(trees, base_path)
         return PieceLayers(
             piece_length=piece_length, piece_layers=piece_layers, file_tree=file_tree
@@ -414,3 +417,60 @@ class PieceLayers:
         hashes = hasher.process()
         trees = hasher.finish_trees(hashes)
         return cls.from_trees(trees, base_path=path_root)
+
+
+class V2PieceRange(PieceRange):
+    """
+    A byte range that corresponds to a file or a piece within a v2 file.
+
+    If the length of the range is smaller than the piece length:
+    if range_start is 0 we assume this range represents a whole file,
+    otherwise we assume that the piece is the last piece in the file.
+
+    If the range represents a whole file, the piece_hash should be None
+    and only the root hash should be given.
+    """
+
+    path: str
+    range_start: int
+    range_end: int
+    piece_length: V2PieceLength
+    file_size: int
+    piece_hash: SHA256Hash | None = None
+    root_hash: SHA256Hash
+
+    @property
+    def tree_shape(self) -> MerkleTreeShape:
+        return MerkleTreeShape(file_size=self.file_size, piece_length=self.piece_length)
+
+    def validate_data(self, data: list[bytes]) -> bool:
+        """
+        Validate 16KiB chunks of data against the provided piece or root hashes.
+
+        If the indicated range is smaller than the piece length,
+        padding is added to the end to balance the merkle tree.
+        Unlike with v1, the user does not need to add zero-padding to the data
+        since it is unambigious from the piece range description.
+        """
+        from torrent_models.hashing.v2 import V2Hasher
+
+        assert all(
+            len(d) == BLOCK_SIZE for d in data[:-1]
+        ), "All chunks except the last must be 16 KiB"
+        assert len(data[-1]) <= BLOCK_SIZE, "The last chunk must be equal to or shorter than 16 KiB"
+        expected_blocks = ceil((self.range_end - self.range_start) / BLOCK_SIZE)
+        assert len(data) == expected_blocks, f"Expected {expected_blocks}, got {len(data)}"
+
+        if self.piece_hash is None:
+            n_pad_blocks = self.tree_shape.n_pad_blocks
+        else:
+            n_pad_blocks = self.tree_shape.blocks_per_piece - len(data)
+
+        block_hashes = [hashlib.sha256(d).digest() for d in data]
+        block_hashes += [bytes(32) for _ in range(n_pad_blocks)]
+
+        hash = V2Hasher.hash_root(block_hashes)
+        if self.piece_hash is None:
+            return hash == self.root_hash
+        else:
+            return hash == self.piece_hash
