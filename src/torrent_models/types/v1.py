@@ -81,7 +81,7 @@ class FileItem(ConfiguredBase):
         return self
 
 
-class _FileItemRange(FileItem):
+class FileItemRange(FileItem):
     """A File Item with a byte range, for use with V1PieceRange"""
 
     range_start: int
@@ -93,7 +93,7 @@ class V1PieceRange(PieceRange):
     Paths and byte ranges that correspond to a single v1
     """
 
-    ranges: list[_FileItemRange]
+    ranges: list[FileItemRange]
     piece_hash: SHA1Hash
 
     def validate_data(self, data: list[bytes]) -> bool:

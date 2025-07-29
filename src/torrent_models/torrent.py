@@ -32,7 +32,7 @@ from torrent_models.types import (
     UnixDatetime,
     str_keys,
 )
-from torrent_models.types.v1 import V1PieceRange, _FileItemRange
+from torrent_models.types.v1 import FileItemRange, V1PieceRange
 from torrent_models.types.v2 import FileTree, V2PieceRange
 
 
@@ -251,7 +251,7 @@ class Torrent(TorrentBase):
                 piece_idx=piece_idx,
                 piece_hash=self.info.pieces[piece_idx],
                 ranges=[
-                    _FileItemRange(
+                    FileItemRange(
                         path=[self.info.name],
                         length=self.info.length,
                         range_start=start_range,
@@ -275,7 +275,7 @@ class Torrent(TorrentBase):
                 file_range_end = min(file.length, file_range_start + self.info.piece_length)
                 found_len += file_range_end - file_range_start
                 ranges.append(
-                    _FileItemRange(
+                    FileItemRange(
                         path=file.path,
                         attr=file.attr,
                         length=file.length,
@@ -297,7 +297,7 @@ class Torrent(TorrentBase):
             file_range_end = min(file.length, self.info.piece_length - found_len)
 
             ranges.append(
-                _FileItemRange(
+                FileItemRange(
                     path=file.path,
                     attr=file.attr,
                     length=file.length,
