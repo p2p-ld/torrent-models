@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.3.*
+
+### v0.3.1 - 2025-07-28
+
+[#6](https://github.com/p2p-ld/torrent-models/pull/6) 
+Add ability to get v1 and v2 byte ranges to validate partial data against.
+
+The behavior differs somewhat significantly between v1 and v2, so we made separate implementations for both
+
+- v1: {meth}`.Torrent.v1_piece_range` a piece may correspond to a range within a single file or across several, and may include padfiles that shouldn't really "exist" on a filesystem
+- v2: {meth}`.Torrent.v2_piece_range` much simpler, a file either has a single root hash or a set of hashes from a lower level of the merkle tree, both are computed identically. pieces are always either a whole file or a part of a single file.
+
+These correspond to the models returned, which both have a {meth}`~torrent_models.types.common.PieceRange.validate_data` method:
+
+- v1: {class}`~torrent_models.types.v1.V1PieceRange`
+- v2: {class}`~torrent_models.types.v2.V2PieceRange`
+
+So we have two methods to get v1 and v2 ranges, which return a PieceRange object that can validate data passed to `validate_data`
+
+so e.g. if we have a v1 torrent of 5 10KiB files of all zeros, and a piece size of 32 KiB, we might do somethign like this
+
+```python
+piece_range = torrent.v1_piece_range(0)
+piece_range.validate_data([bytes(10), bytes(10), bytes(10), bytes(2)])
+```
+
+and v2 torrents work at the block level, as they usually do, so if we had a single-file v2 torrent with an empty 64 KiB file with a piece size of 64KiB, we would do
+
+```python
+piece_range = torrent.v2_piece_range('filename')
+piece_range.validate_data([bytes(16 * KiB) for _ in range(4)])
+```
+
+#### Breaking
+
+- changed the behavior of v2 piece layers dict to match v1 pieces: 
+  when in memory, we split up the pieces into a list of hashes, rather than one bigass bytestring, 
+  and then split again on serialization.
+
 ## v0.2.*
 
 ### v0.2.1 - 2025-07-27
