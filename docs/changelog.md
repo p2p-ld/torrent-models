@@ -2,7 +2,7 @@
 
 ## v0.3.*
 
-### v0.3.1 - 2025-07-28
+### v0.3.0 - 2025-07-28
 
 [#6](https://github.com/p2p-ld/torrent-models/pull/6) 
 Add ability to get v1 and v2 byte ranges to validate partial data against.
