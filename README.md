@@ -1,6 +1,9 @@
 # torrent-models
 
 [![docs](https://readthedocs.org/projects/torrent-models/badge/)](https://torrent-models.readthedocs.io/en/latest/)
+![PyPI - Version](https://img.shields.io/pypi/v/torrent-models)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/torrent-models)
+![PyPI - License](https://img.shields.io/pypi/l/torrent-models)
 
 .torrent file parsing and creation with pydantic
 (and models for other bittorrent things too)
