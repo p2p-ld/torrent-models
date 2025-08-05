@@ -256,6 +256,7 @@ class Torrent(TorrentBase):
                         length=self.info.length,
                         range_start=start_range,
                         range_end=min(self.info.length, end_range),
+                        full_path=self.info.name,
                     )
                 ],
             )
@@ -281,6 +282,7 @@ class Torrent(TorrentBase):
                         length=file.length,
                         range_start=file_range_start,
                         range_end=file_range_end,
+                        full_path="/".join([self.info.name, *file.path]),
                     )
                 )
 
@@ -303,6 +305,7 @@ class Torrent(TorrentBase):
                     length=file.length,
                     range_start=file_range_start,
                     range_end=file_range_end,
+                    full_path="/".join([self.info.name, *file.path]),
                 )
             )
             found_len += file_range_end - file_range_start
@@ -338,6 +341,8 @@ class Torrent(TorrentBase):
 
         root = flat_files[file]["pieces root"]
 
+        full_path = file if len(flat_files) == 1 else "/".join([self.info.name, file])
+
         if root not in self.piece_layers:
             # smaller then piece_length, piece range is whole file
             return V2PieceRange(
@@ -348,6 +353,7 @@ class Torrent(TorrentBase):
                 piece_length=self.info.piece_length,
                 file_size=flat_files[file]["length"],
                 root_hash=root,
+                full_path=full_path,
             )
         else:
             if piece_idx >= len(self.piece_layers[root]):
@@ -364,6 +370,7 @@ class Torrent(TorrentBase):
                 file_size=flat_files[file]["length"],
                 piece_hash=self.piece_layers[root][piece_idx],
                 root_hash=root,
+                full_path=full_path,
             )
 
     @model_validator(mode="after")

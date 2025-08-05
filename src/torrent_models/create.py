@@ -173,7 +173,11 @@ class TorrentCreate(TorrentBase):
         file_items = self._get_v1_file_items(paths)
 
         if not self.info.files:
-            dumped["info"]["files"] = file_items
+            if len(file_items) == 1:
+                dumped["info"]["name"] = file_items[0].path[-1]
+                dumped["info"]["length"] = file_items[0].length
+            else:
+                dumped["info"]["files"] = file_items
 
         if "pieces" not in dumped["info"]:
             hasher = V1Hasher(

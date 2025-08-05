@@ -3,6 +3,7 @@ from abc import abstractmethod
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, NotRequired, TypeAlias
+from urllib.parse import quote
 
 from annotated_types import Ge, Len
 from pydantic import AfterValidator, AnyUrl, BaseModel, Field
@@ -100,3 +101,21 @@ class PieceRange(BaseModel):
     @abstractmethod
     def validate_data(self, data: list[bytes]) -> bool:
         """Check that the provided data matches the piece or root hash"""
+
+
+def webseed_url(base_url: str, path: str) -> str:
+    """
+    Given some base url that is to be used as a webseed url and a path within a torrent file,
+    get the full url that should be requested from the webseed server
+    - leave url unchanged in the case of single file torrents
+    - quote path segments
+    - handle duplicate leading/trailing slashes
+    """
+    if base_url.endswith(path) or base_url.endswith(quote(path)):
+        url = base_url
+    else:
+        # webseed url must be a directory, so we quote the path segments and append
+        url_base = base_url.rstrip("/")
+        path_parts = [quote(part) for part in path.split("/")]
+        url = "/".join([url_base, *path_parts])
+    return url
