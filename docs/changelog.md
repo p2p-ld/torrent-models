@@ -2,6 +2,26 @@
 
 ## v0.3.*
 
+### v0.3.2 - 2025-08-04
+
+[#8](https://github.com/p2p-ld/torrent-models/pull/8)
+
+**Features**
+By the time we have piece ranges, 
+we don't know about the torrent `info.name` field anymore, so we can't construct URLs accurately.
+
+Give that responsibility to the relevant piece range classes, 
+giving them a `webseed_url` method that can be used to get the full url to request from some url that's used as a webseed.
+
+so e.g. for a multi-file torrent named `my_torrent` with a file `a.exe`, 
+a webseed given as `https://example.com/data/` should have the file stored at `https://example.com/data/my_torrent/a.exe`
+
+**Bugfix**
+
+this also fixes v1-only single file torrents 
+(a rare and discouraged case) which improperly added the metadata to the `files` list, 
+rather than just having `name` and `length`.
+
 ### v0.3.1 - 2025-07-28
 
 [#6](https://github.com/p2p-ld/torrent-models/pull/6) 
