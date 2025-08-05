@@ -2,7 +2,7 @@
 
 ## v0.3.*
 
-### v0.3.2 - 2025-08-04
+### v0.3.1 - 2025-08-04
 
 [#8](https://github.com/p2p-ld/torrent-models/pull/8)
 
@@ -22,7 +22,7 @@ this also fixes v1-only single file torrents
 (a rare and discouraged case) which improperly added the metadata to the `files` list, 
 rather than just having `name` and `length`.
 
-### v0.3.1 - 2025-07-28
+### v0.3.0 - 2025-07-28
 
 [#6](https://github.com/p2p-ld/torrent-models/pull/6) 
 Add ability to get v1 and v2 byte ranges to validate partial data against.
