@@ -16,7 +16,7 @@ from pydantic import (
 from pydantic_core.core_schema import SerializationInfo
 
 from torrent_models.base import ConfiguredBase
-from torrent_models.types.common import FilePart, PieceRange, SHA1Hash, _power_of_two
+from torrent_models.types.common import FilePart, PieceRange, SHA1Hash, _power_of_two, webseed_url
 
 V1PieceLength = Annotated[int, AfterValidator(_power_of_two)]
 """
@@ -86,6 +86,14 @@ class FileItemRange(FileItem):
 
     range_start: int
     range_end: int
+    full_path: str
+    """
+    Path to be used with webseeds, includes `info.name` in the case of multifile torrents,
+    so the webseed base can be directly joined with `full_path`
+    """
+
+    def webseed_url(self, base_url: str) -> str:
+        return webseed_url(base_url, self.full_path)
 
 
 class V1PieceRange(PieceRange):
@@ -106,8 +114,8 @@ class V1PieceRange(PieceRange):
         assert len(data) == len(
             self.ranges
         ), "Need to provide data chunks that correspond to each of the indicated file ranges"
-        for range, d in zip(self.ranges, data):
-            assert (range.range_end - range.range_start) == len(d), (
+        for range_, d in zip(self.ranges, data):
+            assert (range_.range_end - range_.range_start) == len(d), (
                 "Provided data chunks must match the sizes indicated by the "
                 "start and end ranges of each file range"
             )

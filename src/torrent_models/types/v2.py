@@ -25,6 +25,7 @@ from torrent_models.types.common import (
     SHA256Hash,
     _divisible_by_16kib,
     _power_of_two,
+    webseed_url,
 )
 
 if TYPE_CHECKING:
@@ -438,6 +439,11 @@ class V2PieceRange(PieceRange):
     file_size: int
     piece_hash: SHA256Hash | None = None
     root_hash: SHA256Hash
+    full_path: str
+    """
+    Path to be used with webseeds, includes `info.name` in the case of multifile torrents,
+    so the webseed base can be directly joined with `full_path`
+    """
 
     @property
     def tree_shape(self) -> MerkleTreeShape:
@@ -474,3 +480,6 @@ class V2PieceRange(PieceRange):
             return hash == self.root_hash
         else:
             return hash == self.piece_hash
+
+    def webseed_url(self, base_url: str) -> str:
+        return webseed_url(base_url, self.full_path)
