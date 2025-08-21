@@ -272,7 +272,7 @@ class Torrent(TorrentBase):
             if file.length + size_idx > start_range:
                 # range starts in this file
                 # create the range from the first file
-                file_range_start = start_range % size_idx if size_idx > 0 else start_range
+                file_range_start = start_range - size_idx
                 file_range_end = min(file.length, file_range_start + self.info.piece_length)
                 found_len += file_range_end - file_range_start
                 ranges.append(
