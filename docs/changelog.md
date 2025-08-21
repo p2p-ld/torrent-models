@@ -2,6 +2,14 @@
 
 ## v0.3.*
 
+### v0.3.2 - 2025-08-21
+
+**Bugfix**
+
+[#9](https://github.com/p2p-ld/torrent-models/pull/9) - Fixed incorrectly finding start of piece
+using modulo rather than subtraction, which could cause duplicate/incorrect ranges
+in the cae that e.g. multiple files that were exactly piece length were at the start of a torrent.
+
 ### v0.3.1 - 2025-08-04
 
 [#8](https://github.com/p2p-ld/torrent-models/pull/8)
