@@ -123,10 +123,10 @@ def make(
     start_time = time()
     created = TorrentCreate(
         trackers=tracker,
-        files=files,
+        paths=files,
         path_root=path,
         comment=comment,
-        creator=creator,
+        created_by=creator,
         url_list=webseed,
         similar=similar,
         info=InfoDictHybridCreate(piece_length=piece_size, name=path.name),

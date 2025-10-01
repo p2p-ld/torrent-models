@@ -2,6 +2,12 @@
 
 ## v0.3.*
 
+### v0.3.3 - 2025-09-30
+
+**Bugfix**
+
+Fixed the cli `torrent make` command, which was using the old `files` and `creator` convenience fields.
+
 ### v0.3.2 - 2025-08-21
 
 **Bugfix**
