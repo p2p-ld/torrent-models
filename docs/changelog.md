@@ -1,5 +1,9 @@
 # Changelog
 
+## Upcoming
+
+- Fix serialization of hashes in `print` mode, which now prints the hex-encoded version everywhere
+
 ## v0.3.*
 
 ### v0.3.3 - 2025-09-30
