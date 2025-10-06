@@ -1,11 +1,13 @@
 # Changelog
 
-## Upcoming
+## v0.3.*
+
+### v0.3.4 - 2025-10-06
+
+**Bugfix**
 
 - Fix serialization of hashes in `print` mode, which now prints the hex-encoded version everywhere
 - Add humanize to required deps
-
-## v0.3.*
 
 ### v0.3.3 - 2025-09-30
 
