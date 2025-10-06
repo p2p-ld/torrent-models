@@ -3,6 +3,7 @@
 ## Upcoming
 
 - Fix serialization of hashes in `print` mode, which now prints the hex-encoded version everywhere
+- Add humanize to required deps
 
 ## v0.3.*
 

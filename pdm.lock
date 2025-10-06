@@ -5,7 +5,7 @@
 groups = ["default", "cli", "dev", "docs", "libtorrent", "mypy", "tests"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:ff94e6322519ec1d54e0b5a9b785f76b6fca5866d1691edc655f1067681fa88e"
+content_hash = "sha256:92a825780201cbb5bfe4af624788932e5ec6078046c4c45a3d655aa213fd8980"
 
 [[metadata.targets]]
 requires_python = ">=3.11"
@@ -725,7 +725,7 @@ name = "humanize"
 version = "4.13.0"
 requires_python = ">=3.9"
 summary = "Python humanize utilities"
-groups = ["cli", "dev", "docs", "mypy", "tests"]
+groups = ["default"]
 files = [
     {file = "humanize-4.13.0-py3-none-any.whl", hash = "sha256:b810820b31891813b1673e8fec7f1ed3312061eab2f26e3fa192c393d11ed25f"},
     {file = "humanize-4.13.0.tar.gz", hash = "sha256:78f79e68f76f0b04d711c4e55d32bebef5be387148862cb1ef83d2b58e7935a0"},
