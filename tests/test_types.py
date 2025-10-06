@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from torrent_models import KiB, TorrentCreate
+from torrent_models import KiB, Torrent, TorrentCreate
+
+from .conftest import DATA_DIR
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
@@ -61,3 +63,19 @@ def test_webseed_url_multifile(version: str, tmp_path: Path):
     # ensure name is prepended to directories
     assert prange.webseed_url("https://example.com/data/") == ws_expected
     assert prange.webseed_url("https://example.com/data") == ws_expected
+
+
+def test_print_hash():
+    """
+    When serialized in `print` mode, hashes should be serialized as strings everywhere
+    """
+    t = Torrent.read(DATA_DIR / "qbt_directory_hybrid.torrent")
+    dumped = t.model_dump(context={"mode": "print"})
+    assert all([isinstance(p, str) for p in dumped["info"]["pieces"]])
+    assert all(
+        [isinstance(f[""]["pieces root"], str) for f in dumped["info"]["file_tree"].values()]
+    )
+    assert all([isinstance(k, str) for k in dumped["piece_layers"]])
+    for k, v in dumped["piece_layers"].items():
+        assert isinstance(k, str)
+        assert all([isinstance(v_hash, str) for v_hash in v])

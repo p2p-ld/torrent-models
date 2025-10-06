@@ -50,9 +50,12 @@ tests = [
     "torrent-models[cli,libtorrent]",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
-    "pytest-codspeed>=3.2.0",
     "torf>=4.3.0",
     "pytest-profiling>=1.8.1",
+]
+benchmark = [
+    "torrent-models[tests]",
+    "pytest-codspeed>=3.2.0",
 ]
 dev = [
     "torrent-models[tests,mypy]",
@@ -185,7 +188,7 @@ line-length = 100
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/stubs"
 packages = ["torrent_models"]
 warn_redundant_casts = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 show_error_context = true
 show_column_numbers = true
 show_error_code_links = true

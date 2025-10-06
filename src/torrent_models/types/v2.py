@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from functools import cached_property
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, NotRequired, TypeAlias, cast
+from typing import TYPE_CHECKING, Annotated, Any, Callable, NotRequired, TypeAlias, cast
 from typing import Literal as L
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, PlainSerializer
+from pydantic import AfterValidator, BaseModel, BeforeValidator, WrapSerializer
 from pydantic_core.core_schema import SerializationInfo
 from typing_extensions import TypeAliasType, TypedDict
 
@@ -44,12 +44,11 @@ def _validate_v2_hash(value: bytes | list[bytes]) -> list[bytes]:
     return value
 
 
-def _serialize_v2_hash(value: list[bytes], info: SerializationInfo) -> bytes | str | list[str]:
+def _serialize_v2_hash(
+    value: list[SHA256Hash], handler: Callable, info: SerializationInfo
+) -> bytes | list[str]:
+    ret = handler(value)
     if info.context and info.context.get("mode") == "print":
-        ret = [v.hex() if isinstance(v, bytes) else v for v in value]
-
-        if info.context.get("hash_truncate"):
-            ret = [v[0:8] for v in ret]
         return ret
     else:
         return b"".join(value)
@@ -66,7 +65,7 @@ def _sort_keys(value: dict) -> dict:
 
 
 PieceLayerItem = Annotated[
-    list[SHA256Hash], BeforeValidator(_validate_v2_hash), PlainSerializer(_serialize_v2_hash)
+    list[SHA256Hash], BeforeValidator(_validate_v2_hash), WrapSerializer(_serialize_v2_hash)
 ]
 PieceLayersType = dict[SHA256Hash, PieceLayerItem]
 FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[SHA256Hash]})

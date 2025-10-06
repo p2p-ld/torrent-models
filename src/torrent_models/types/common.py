@@ -6,7 +6,7 @@ from typing import Annotated, NotRequired, TypeAlias
 from urllib.parse import quote
 
 from annotated_types import Ge, Len
-from pydantic import AfterValidator, AnyUrl, BaseModel, Field
+from pydantic import AfterValidator, AnyUrl, BaseModel, Field, PlainSerializer, SerializationInfo
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types.serdes import ByteStr
@@ -29,8 +29,20 @@ FileName: TypeAlias = ByteStr
 """Placeholder in case specific validation is needed for filenames"""
 FilePart: TypeAlias = ByteStr
 """Placeholder in case specific validation is needed for filenames"""
-SHA1Hash = Annotated[bytes, Len(20, 20)]
-SHA256Hash = Annotated[bytes, Len(32, 32)]
+
+
+def _serialize_hash(value: bytes, info: SerializationInfo) -> bytes | str:
+    if info.context and info.context.get("mode") == "print":
+        v = value.hex()
+        if info.context.get("hash_truncate"):
+            v = v[0:8]
+        return v
+    else:
+        return value
+
+
+SHA1Hash = Annotated[bytes, Len(20, 20), PlainSerializer(_serialize_hash)]
+SHA256Hash = Annotated[bytes, Len(32, 32), PlainSerializer(_serialize_hash)]
 
 
 TrackerFields = TypedDict(

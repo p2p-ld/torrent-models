@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import libtorrent
 import pytest
 
 from torrent_models import Torrent
@@ -15,6 +14,7 @@ def test_parse_hybrid():
     torrent = Torrent.read("tests/data/qbt_directory_hybrid.torrent")
 
 
+@pytest.mark.libtorrent
 @pytest.mark.parametrize(
     "tfile",
     [pytest.param(tf, id=str(tf.name)) for tf in ALL_TORRENTS],
@@ -23,6 +23,8 @@ def test_infohash(tfile: Path):
     """
     Test that the infohash that we get from a torrent is the same as what libtorrent would compute
     """
+    import libtorrent
+
     lt_torrent = libtorrent.load_torrent_file(str(tfile))
     t = Torrent.read(tfile)
 
