@@ -8,7 +8,7 @@
 .torrent file parsing and creation with pydantic
 (and models for other bittorrent things too)
 
-While there are [many](#other-projects) other torrent packages, this one:
+While there are [many](#see-also) other torrent packages, this one:
 
 - Is simple and focused
 - Can create and parse v1, v2, hybrid, and [other BEPs](./beps.md)
