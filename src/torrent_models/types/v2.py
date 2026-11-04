@@ -9,12 +9,11 @@ from dataclasses import dataclass
 from functools import cached_property
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Callable, NotRequired, cast
+from typing import TYPE_CHECKING, Annotated, Any, Callable, NotRequired, TypedDict, cast
 from typing import Literal as L
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, WrapSerializer
 from pydantic_core.core_schema import SerializationInfo
-from typing_extensions import TypedDict
 
 from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE

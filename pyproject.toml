@@ -9,7 +9,7 @@ dependencies = [
     "pydantic>=2.10.6",
     "bencode-rs>=0.0.7",
     "tqdm>=4.67.1",
-    'typing-extensions>=4.13.0; python_version<"3.12"',
+    'typing-extensions>=4.13.0; python_version<"3.13"',
     "rich>=14.0.0",
     "humanize>=4.12.2",
 ]

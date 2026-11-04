@@ -8,7 +8,8 @@ at the top level, rather than nested within the infodict.
 
 import multiprocessing as mp
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, overload
+from typing import Literal as L
 
 from pydantic import Field, model_validator
 
@@ -30,7 +31,7 @@ from torrent_models.types import (
 from torrent_models.types.v2 import FileTree, PieceLayers
 
 
-class TorrentCreate(TorrentBase):
+class TorrentCreate(TorrentBase[InfoDictHybridCreate]):
     """
     A programmatically created torrent that may not have its hashes computed yet.
 
@@ -58,7 +59,7 @@ class TorrentCreate(TorrentBase):
     created_by: ByteStr | None = Field(DEFAULT_TORRENT_CREATOR, alias="created by")
 
     # convenience fields
-    info: InfoDictHybridCreate = Field(default_factory=InfoDictHybridCreate)  # type: ignore
+    info: InfoDictHybridCreate = Field(default_factory=InfoDictHybridCreate)
     paths: list[Path] | None = Field(
         None,
         description="""
@@ -114,6 +115,31 @@ class TorrentCreate(TorrentBase):
             self.info.name = self.path_root.name
         return self
 
+    @overload
+    def generate(
+        self,
+        version: L["v1", TorrentVersion.v1],
+        n_processes: int | None = 1,
+        progress: bool = False,
+    ) -> Torrent[InfoDictV1]: ...
+    @overload
+    def generate(
+        self,
+        version: L["v2", TorrentVersion.v2],
+        n_processes: int | None = 1,
+        progress: bool = False,
+    ) -> Torrent[InfoDictV2]: ...
+    @overload
+    def generate(
+        self,
+        version: L["hybrid", TorrentVersion.hybrid],
+        n_processes: int | None = 1,
+        progress: bool = False,
+    ) -> Torrent[InfoDictHybrid]: ...
+    @overload
+    def generate(
+        self, version: TorrentVersion | str, n_processes: int | None = 1, progress: bool = False
+    ) -> Torrent: ...
     def generate(
         self, version: TorrentVersion | str, n_processes: int | None = 1, progress: bool = False
     ) -> Torrent:
@@ -136,6 +162,31 @@ class TorrentCreate(TorrentBase):
         else:
             raise ValueError(f"Unknown torrent version: {version}")
 
+    @overload
+    def generate_libtorrent(
+        self,
+        version: TorrentVersion | str,
+        output: Path | None = ...,
+        *,
+        bencode: L[True],
+        progress: bool = ...,
+    ) -> bytes: ...
+    @overload
+    def generate_libtorrent(
+        self,
+        version: TorrentVersion | str,
+        output: Path | None = ...,
+        bencode: L[False] = ...,
+        progress: bool = ...,
+    ) -> dict: ...
+    @overload
+    def generate_libtorrent(
+        self,
+        version: TorrentVersion | str,
+        output: Path | None = ...,
+        bencode: bool = ...,
+        progress: bool = ...,
+    ) -> dict | bytes: ...
     def generate_libtorrent(
         self,
         version: TorrentVersion | str,
@@ -166,7 +217,9 @@ class TorrentCreate(TorrentBase):
         dumped.update(self.get_trackers())
         return dumped
 
-    def _generate_v1(self, n_processes: int, progress: bool = False, **kwargs: Any) -> Torrent:
+    def _generate_v1(
+        self, n_processes: int, progress: bool = False, **kwargs: Any
+    ) -> Torrent[InfoDictV1]:
         dumped = self._generate_common()
 
         paths = self.get_paths(clean=True, v1_order=True)
@@ -196,7 +249,7 @@ class TorrentCreate(TorrentBase):
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
-    def _generate_v2(self, n_processes: int, progress: bool = False) -> Torrent:
+    def _generate_v2(self, n_processes: int, progress: bool = False) -> Torrent[InfoDictV2]:
         dumped = self._generate_common()
         paths = self.get_paths(clean=True, v1_order=False)
 
@@ -215,7 +268,7 @@ class TorrentCreate(TorrentBase):
         del dumped["info"]
         return Torrent(info=info, **dumped)
 
-    def _generate_hybrid(self, n_processes: int, progress: bool = False) -> Torrent:
+    def _generate_hybrid(self, n_processes: int, progress: bool = False) -> Torrent[InfoDictHybrid]:
         dumped = self._generate_common()
 
         # Gather paths

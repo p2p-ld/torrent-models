@@ -8,9 +8,9 @@ import posixpath
 from bisect import bisect_right
 from itertools import accumulate
 from math import ceil
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Generic, cast, overload
 
-from torrent_models.info import InfoDictHybrid, InfoDictV1, InfoDictV2
+from torrent_models.info import InfoDictHybrid, InfoDictV1, InfoDictV2, InfoT
 from torrent_models.types import FileItem, FileTreeItem, PieceLayersType, TorrentVersion
 from torrent_models.types.v1 import FileItemRange, V1PieceRange
 from torrent_models.types.v2 import V2PieceRange
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from torrent_models.torrent import Torrent
 
 
-class FileLayout:
+class FileLayout(Generic[InfoT]):  # noqa: UP046 - see InfoT
     """
     Where each file's data is within a torrent's pieces.
 
@@ -30,10 +30,20 @@ class FileLayout:
     Hybrid torrents support both.
     """
 
-    def __init__(self, torrent: "Torrent"):
+    def __init__(self, torrent: "Torrent[InfoT]"):
         self.torrent = torrent
         self._v1_file_ends: list[int] | None = None
 
+    # hybrids count as v1 to the type checker, but get v2 ranges here,
+    # so the first two overloads overlap with different return types.
+    @overload
+    def file_pieces(  # type: ignore[overload-overlap]
+        self: "FileLayout[InfoDictV2]", path: str
+    ) -> list[V2PieceRange]: ...
+    @overload
+    def file_pieces(self: "FileLayout[InfoDictV1]", path: str) -> list[V1PieceRange]: ...
+    @overload
+    def file_pieces(self, path: str) -> list[V1PieceRange] | list[V2PieceRange]: ...
     def file_pieces(self, path: str) -> list[V1PieceRange] | list[V2PieceRange]:
         """
         Get all the piece ranges that contain a file's data, in order.
@@ -242,9 +252,10 @@ class FileLayout:
             TorrentVersion.v2,
             TorrentVersion.hybrid,
         ), "Cannot get v2 piece ranges from a v1-only torrent"
+        info = cast(InfoDictV2 | InfoDictHybrid, self.torrent.info)
         flat_files = cast(dict[str, FileTreeItem], self.torrent.flat_files)
         if path not in flat_files:
             raise ValueError(f"file {path} not found in torrent!")
 
-        n_pieces = ceil(flat_files[path]["length"] / self.torrent.info.piece_length)
+        n_pieces = ceil(flat_files[path]["length"] / info.piece_length)
         return [self.v2_piece_range(path, i) for i in range(n_pieces)]

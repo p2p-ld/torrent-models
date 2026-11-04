@@ -2,7 +2,7 @@ import posixpath
 import warnings
 from math import ceil
 from pathlib import Path
-from typing import Any, BinaryIO, Self, cast
+from typing import Any, BinaryIO, Generic, Self, cast
 from typing import Literal as L
 
 import bencode_rs
@@ -16,11 +16,11 @@ from rich.table import Table
 from torrent_models.base import ConfiguredBase
 from torrent_models.info import (
     InfoDictHybrid,
-    InfodictUnionType,
     InfoDictV1,
     InfoDictV1Base,
     InfoDictV2,
     InfoDictV2Base,
+    InfoT,
 )
 from torrent_models.layout import FileLayout
 from torrent_models.types import (
@@ -38,13 +38,13 @@ from torrent_models.types.v1 import V1PieceRange
 from torrent_models.types.v2 import FileTree, V2PieceRange
 
 
-class TorrentBase(ConfiguredBase):
+class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
     announce: ByteStr | None = None
     announce_list: list[list[ByteStr]] | None = Field(default=None, alias="announce-list")
     comment: ByteStr | None = None
     created_by: ByteStr | None = Field(None, alias="created by")
     creation_date: UnixDatetime | None = Field(default=None, alias="creation date")
-    info: InfodictUnionType
+    info: InfoT
     piece_layers: PieceLayersType | None = Field(None, alias="piece layers")
     url_list: ListOrValue[ByteStr] | None = Field(
         None, alias="url-list", description="List of webseeds"
@@ -114,13 +114,13 @@ class TorrentBase(ConfiguredBase):
         """
 
         if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
-            self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
-            if self.info.files is None:
+            info = cast(InfoDictV1 | InfoDictHybrid, self.info)
+            if info.files is None:
                 return 1
-            return len([f for f in self.info.files if f.attr not in (b"p", "p")])
+            return len([f for f in info.files if f.attr not in (b"p", "p")])
         else:
-            self.info = cast(InfoDictV2, self.info)
-            tree = FileTree.flatten_tree(self.info.file_tree)
+            info = cast(InfoDictV2, self.info)
+            tree = FileTree.flatten_tree(info.file_tree)
             return len(tree)
 
     @property
@@ -129,22 +129,21 @@ class TorrentBase(ConfiguredBase):
         Total size of the torrent, excluding padfiles, in bytes
         """
         if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
-            self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
-            if self.info.files is None:
-                self.info.length = cast(int, self.info.length)
-                return self.info.length
-            return sum([f.length for f in self.info.files if f.attr not in (b"p", "p")])
+            info = cast(InfoDictV1 | InfoDictHybrid, self.info)
+            if info.files is None:
+                return cast(int, info.length)
+            return sum([f.length for f in info.files if f.attr not in (b"p", "p")])
         else:
-            self.info = cast(InfoDictV2, self.info)
-            tree = FileTree.flatten_tree(self.info.file_tree)
+            info = cast(InfoDictV2, self.info)
+            tree = FileTree.flatten_tree(info.file_tree)
             return sum([t["length"] for t in tree.values()])
 
     @property
     def flat_files(self) -> dict[str, FileTreeItem] | None:
         """A flattened version of the v2 file tree"""
         if self._flat_files is None and self.torrent_version != TorrentVersion.v1:
-            self.info = cast(InfoDictV2, self.info)
-            self._flat_files = FileTree.flatten_tree(self.info.file_tree)
+            info = cast(InfoDictV2, self.info)
+            self._flat_files = FileTree.flatten_tree(info.file_tree)
         return self._flat_files
 
     @property
@@ -156,11 +155,11 @@ class TorrentBase(ConfiguredBase):
             # v1 and v2 reps already confirmed to be equivalent during validation
             files = []
             if self.torrent_version in (TorrentVersion.v1, TorrentVersion.hybrid):
-                self.info = cast(InfoDictV1 | InfoDictHybrid, self.info)
-                if self.info.files is None:
-                    v1_files = [FileItem(length=self.info.length, path=[self.info.name])]
+                info = cast(InfoDictV1 | InfoDictHybrid, self.info)
+                if info.files is None:
+                    v1_files = [FileItem(length=info.length, path=[info.name])]
                 else:
-                    v1_files = self.info.files
+                    v1_files = info.files
                 for f in v1_files:
                     if f.is_padfile:
                         continue
@@ -211,12 +210,12 @@ class TorrentBase(ConfiguredBase):
         pprint(self, verbose=verbose)
 
 
-class Torrent(TorrentBase):
+class Torrent(TorrentBase[InfoT]):
     """
     A valid torrent file, including hashes.
     """
 
-    _layout: FileLayout | None = None
+    _layout: FileLayout[Any] | None = None
 
     @property
     def file_size(self) -> int:
@@ -233,7 +232,7 @@ class Torrent(TorrentBase):
             f.write(self.bencode())
 
     @property
-    def layout(self) -> FileLayout:
+    def layout(self) -> FileLayout[InfoT]:
         """
         Mapping between files and the pieces that contain their data.
 
@@ -277,24 +276,24 @@ class Torrent(TorrentBase):
         if self.torrent_version == TorrentVersion.v1:
             return self
         self.piece_layers = cast(PieceLayersType, self.piece_layers)
-        self.info = cast(InfoDictV2 | InfoDictHybrid, self.info)
-        for path, file_info in self.info.flat_tree.items():
-            if file_info["length"] > self.info.piece_length:
+        info = cast(InfoDictV2 | InfoDictHybrid, self.info)
+        for path, file_info in info.flat_tree.items():
+            if file_info["length"] > info.piece_length:
                 assert file_info["pieces root"] in self.piece_layers, (
                     f"file {path} does not have a matching piece root in the piece layers dict. "
                     f"Expected to find: {file_info['pieces root']}"  # type: ignore
                 )
-                expected_pieces = ceil(file_info["length"] / self.info.piece_length)
+                expected_pieces = ceil(file_info["length"] / info.piece_length)
                 assert len(self.piece_layers[file_info["pieces root"]]) == expected_pieces, (
                     f"File {path} does not have the correct number of piece hashes. "
                     f"Expected {expected_pieces} hashes from file length {file_info['length']} "
-                    f"and piece length {self.info.piece_length}. "
+                    f"and piece length {info.piece_length}. "
                     f"Got {len(self.piece_layers[file_info['pieces root']])}"
                 )
         return self
 
 
-def pprint(t: TorrentBase, verbose: int = 0) -> None:
+def pprint(t: TorrentBase[Any], verbose: int = 0) -> None:
     """
     Print the contents of a torrent file.
 
@@ -353,11 +352,11 @@ def pprint(t: TorrentBase, verbose: int = 0) -> None:
         file_table.add_column("Size")
 
         if t.torrent_version == TorrentVersion.v1:
-            t.info = cast(InfoDictV1, t.info)
+            info = cast(InfoDictV1, t.info)
             tfiles = (
-                t.info.files
-                if t.info.files is not None
-                else [FileItem(path=t.info.name, length=t.info.length)]
+                info.files
+                if info.files is not None
+                else [FileItem(path=info.name, length=info.length)]
             )
 
             files = [
@@ -366,7 +365,6 @@ def pprint(t: TorrentBase, verbose: int = 0) -> None:
                 if f.attr not in (b"p", "p")
             ]
         else:
-            t.info = cast(InfoDictV2 | InfoDictHybrid, t.info)
             file_table.add_column("Hash")
             tree = t.flat_files
             assert tree is not None
