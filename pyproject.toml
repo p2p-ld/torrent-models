@@ -201,11 +201,11 @@ plugins = ['pydantic.mypy']
 addopts = [
     "--cov=torrent-models",
     "--cov-append",
+    "--doctest-glob=*.md"
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "docs"]
-addopts = "--doctest-glob=*.md"
 doctest_optionflags = "ELLIPSIS"
 markers = """
   libtorrent: tests that compare libtorrent-created torrents with torrent-models torrents
