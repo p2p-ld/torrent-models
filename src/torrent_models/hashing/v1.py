@@ -1,6 +1,7 @@
+import sys
 from functools import cached_property
 from itertools import count
-from multiprocessing.pool import AsyncResult
+from multiprocessing.pool import ApplyResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, overload
@@ -11,7 +12,7 @@ from torrent_models.hashing.base import Chunk, Hash, HasherBase
 from torrent_models.types.v1 import V1PieceLength
 
 if TYPE_CHECKING:
-    from multiprocessing.pool import AsyncResult
+    pass
 
 
 class V1Hasher(HasherBase):
@@ -37,12 +38,12 @@ class V1Hasher(HasherBase):
         return value
 
     @overload
-    def update(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]: ...
+    def update(self, chunk: Chunk, pool: PoolType) -> list[ApplyResult]: ...
 
     @overload
     def update(self, chunk: Chunk, pool: None) -> list[Hash]: ...
 
-    def update(self, chunk: Chunk, pool: PoolType | None = None) -> list[AsyncResult] | list[Hash]:
+    def update(self, chunk: Chunk, pool: PoolType | None = None) -> list[ApplyResult] | list[Hash]:
         return self._update_v1(chunk, pool)
 
     @cached_property
@@ -50,16 +51,16 @@ class V1Hasher(HasherBase):
         return self._v1_total_hashes()
 
     @overload
-    def _update_v1(self, chunk: Chunk, pool: PoolType) -> list[AsyncResult]: ...
+    def _update_v1(self, chunk: Chunk, pool: PoolType) -> list[ApplyResult]: ...
 
     @overload
     def _update_v1(self, chunk: Chunk, pool: None) -> list[Hash]: ...
 
-    def _update_v1(self, chunk: Chunk, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
+    def _update_v1(self, chunk: Chunk, pool: PoolType | None) -> list[ApplyResult] | list[Hash]:
         # gather v1 pieces until we have blocks_per_piece or reach the end of a file
         # have to annotate as a mixed list here and recast at the end
         # because mypy can't follow the overloads
-        res: list[AsyncResult | Hash] = []
+        res: list[ApplyResult | Hash] = []
         if self._last_path is not None and chunk.path != self._last_path and len(self._buffer) > 0:
             res.extend(self._on_file_end(pool=pool))
         self._last_path = chunk.path
@@ -76,8 +77,11 @@ class V1Hasher(HasherBase):
             # handle file ends, read sizes that are larger/smaller than piece size.
             self._buffer.extend(chunk.chunk)
             while len(self._buffer) >= self.piece_length:
-                piece = self._buffer[: self.piece_length]
-                del self._buffer[: self.piece_length]
+                if sys.version_info < (3, 15):
+                    piece = bytes(self._buffer[: self.piece_length])
+                    del self._buffer[: self.piece_length]
+                else:
+                    piece = self._buffer.take_bytes(self.piece_length)
                 piece_chunk = Chunk.model_construct(
                     idx=next(self._v1_counter), path=chunk.path, chunk=piece
                 )
@@ -86,31 +90,30 @@ class V1Hasher(HasherBase):
                 else:
                     res.append(self._hash_v1(piece_chunk, self.path_root))
 
-        res = cast(list[AsyncResult] | list[Hash], res)
-        return res
+        return res  # type: ignore[return-value]
 
     @overload
-    def _on_file_end(self, pool: PoolType) -> list[AsyncResult]: ...
+    def _on_file_end(self, pool: PoolType) -> list[ApplyResult]: ...
 
     @overload
     def _on_file_end(self, pool: None) -> list[Hash]: ...
 
-    def _on_file_end(self, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
+    def _on_file_end(self, pool: PoolType | None) -> list[ApplyResult] | list[Hash]:
         """Allow hybrid hasher to add padding at file boundaries and submit piece"""
         return []
 
     @overload
-    def _after_read(self, pool: PoolType) -> list[AsyncResult]: ...
+    def _after_read(self, pool: PoolType) -> list[ApplyResult]: ...
 
     @overload
     def _after_read(self, pool: None) -> list[Hash]: ...
 
-    def _after_read(self, pool: PoolType | None) -> list[AsyncResult] | list[Hash]:
+    def _after_read(self, pool: PoolType | None) -> list[ApplyResult] | list[Hash]:
         """Submit the final incomplete piece"""
         if len(self._buffer) > 0:
             self._last_path = cast(Path, self._last_path)
             chunk = Chunk.model_construct(
-                idx=next(self._v1_counter), path=self._last_path, chunk=self._buffer
+                idx=next(self._v1_counter), path=self._last_path, chunk=bytes(self._buffer)
             )
             if pool:
                 return [pool.apply_async(self._hash_v1, args=(chunk, self.path_root))]

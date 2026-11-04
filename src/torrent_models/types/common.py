@@ -1,8 +1,7 @@
-import sys
 from abc import abstractmethod
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NotRequired, TypeAlias
+from typing import Annotated, NotRequired, TypedDict
 from urllib.parse import quote
 
 from annotated_types import Ge, Len
@@ -10,11 +9,6 @@ from pydantic import AfterValidator, AnyUrl, BaseModel, Field, PlainSerializer, 
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types.serdes import ByteStr
-
-if sys.version_info < (3, 12):
-    from typing_extensions import TypedDict
-else:
-    from typing import TypedDict
 
 
 class TorrentVersion(StrEnum):
@@ -25,9 +19,9 @@ class TorrentVersion(StrEnum):
     hybrid = "hybrid"
 
 
-FileName: TypeAlias = ByteStr
+type FileName = ByteStr
 """Placeholder in case specific validation is needed for filenames"""
-FilePart: TypeAlias = ByteStr
+type FilePart = ByteStr
 """Placeholder in case specific validation is needed for filenames"""
 
 

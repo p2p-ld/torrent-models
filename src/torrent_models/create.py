@@ -8,7 +8,7 @@ at the top level, rather than nested within the infodict.
 
 import multiprocessing as mp
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import Any, Self
 
 from pydantic import Field, model_validator
 
@@ -325,14 +325,11 @@ class TorrentCreate(TorrentBase):
         # FIXME: hideous
         if self.trackers:
             if isinstance(self.trackers[0], list):
-
-                self.trackers = cast(list[list[str]], self.trackers)
                 if len(self.trackers[0]) == 1 and len(self.trackers[0][0]) == 1:
                     return {"announce": self.trackers[0][0]}
                 else:
                     return {"announce": self.trackers[0][0], "announce-list": self.trackers}
             else:
-                self.trackers = cast(list[str], self.trackers)
                 if len(self.trackers) == 1:
                     return {"announce": self.trackers[0]}
                 else:

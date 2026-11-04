@@ -9,7 +9,7 @@ from math import ceil
 from multiprocessing.pool import ApplyResult, AsyncResult
 from multiprocessing.pool import Pool as PoolType
 from pathlib import Path
-from typing import Any, Self, TypeAlias, cast, overload
+from typing import Any, Self, cast, overload
 from typing import Literal as L
 
 from pydantic import BaseModel, Field, model_validator
@@ -309,7 +309,7 @@ class DummyPbar:
         pass
 
 
-PbarLike: TypeAlias = DummyPbar | tqdm
+type PbarLike = DummyPbar | tqdm
 
 
 class _PBars:

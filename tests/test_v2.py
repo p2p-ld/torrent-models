@@ -22,8 +22,10 @@ FLAT_FILE_TREES = (
     },
 )
 
+CASES = tuple(zip(FILE_TREES, FLAT_FILE_TREES))
 
-@pytest.mark.parametrize("tree,flat", zip(FILE_TREES, FLAT_FILE_TREES))
+
+@pytest.mark.parametrize("tree,flat", CASES)
 def test_flatten_tree(tree, flat):
     """
     We can flatten a tree!
@@ -31,7 +33,7 @@ def test_flatten_tree(tree, flat):
     assert FileTree.flatten_tree(tree) == flat
 
 
-@pytest.mark.parametrize("tree,flat", zip(FILE_TREES, FLAT_FILE_TREES))
+@pytest.mark.parametrize("tree,flat", CASES)
 def test_unflatten_tree(tree, flat):
     """
     We can unflatten a tree!
@@ -39,7 +41,7 @@ def test_unflatten_tree(tree, flat):
     assert FileTree.unflatten_tree(flat) == tree
 
 
-@pytest.mark.parametrize("tree,flat", zip(FILE_TREES, FLAT_FILE_TREES))
+@pytest.mark.parametrize("tree,flat", CASES)
 def test_roundtrip_tree(tree, flat):
     """
     We can roundtrip flatten and unflattening trees!
