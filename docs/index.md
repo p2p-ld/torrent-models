@@ -185,6 +185,7 @@ usage/validation
 api/create
 api/hashing
 api/info
+api/layout
 api/libtorrent
 api/torrent
 api/types

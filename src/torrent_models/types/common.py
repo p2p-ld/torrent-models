@@ -109,6 +109,8 @@ class PieceRange(BaseModel):
     """
 
     piece_idx: int
+    piece_length: int
+    """Piece length of the torrent, in bytes"""
 
     @abstractmethod
     def validate_data(self, data: list[bytes]) -> bool:
