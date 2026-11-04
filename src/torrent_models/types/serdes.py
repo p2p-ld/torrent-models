@@ -104,17 +104,17 @@ ByteUrl = Annotated[AnyUrl, PlainSerializer(_to_bytes)]
 _Inner = TypeVar("_Inner")
 
 
-def _to_list(val: _Inner | list[_Inner]) -> list[_Inner]:
+def _to_list[Inner](val: Inner | list[Inner]) -> list[Inner]:
     if val and not isinstance(val, list):
         return [val]
     else:
-        val = cast(list[_Inner], val)
+        val = cast(list[Inner], val)
         return val
 
 
-def _from_list(
-    val: list[_Inner] | None, handler: SerializerFunctionWrapHandler
-) -> list[_Inner] | _Inner | None:
+def _from_list[Inner](
+    val: list[Inner] | None, handler: SerializerFunctionWrapHandler
+) -> list[Inner] | Inner | None:
     partial = handler(val)
     if partial and len(partial) == 1:
         return partial[0]

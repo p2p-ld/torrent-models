@@ -13,7 +13,7 @@ dependencies = [
     "rich>=14.0.0",
     "humanize>=4.12.2",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "EUPL-1.2"}
 repository = "https://github.com/p2p-ld/noob"
@@ -118,7 +118,7 @@ docs = "sphinx-autobuild ./docs ./docs/_build/html"
 
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 include = ["src/torrent_models/**/*.py", "tests/**/*.py", "pyproject.toml"]
 exclude = []
 line-length = 100
@@ -180,7 +180,7 @@ fixable = ["ALL"]
 "tests/fixtures/**/*" = ["F403"]
 
 [tool.black]
-target-version = ['py311', 'py312', 'py313']
+target-version = ['py312', 'py313', 'py314', 'py315']
 include = "(?:tests|torrent_models)/.*\\.py$"
 line-length = 100
 
@@ -199,14 +199,13 @@ plugins = ['pydantic.mypy']
 
 [tool.pytest]
 addopts = [
-    "--cov=torrent-models",
+    "--cov=torrent_models",
     "--cov-append",
     "--doctest-glob=*.md"
 ]
 
-[tool.pytest.ini_options]
 testpaths = ["tests", "docs"]
-doctest_optionflags = "ELLIPSIS"
-markers = """
-  libtorrent: tests that compare libtorrent-created torrents with torrent-models torrents
-"""
+doctest_optionflags = ["ELLIPSIS"]
+markers = [
+  "libtorrent: tests that compare libtorrent-created torrents with torrent-models torrents"
+]

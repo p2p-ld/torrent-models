@@ -1,7 +1,7 @@
 import hashlib
 from math import ceil
 from posixpath import join as posixjoin
-from typing import Annotated, Any, Self, TypeAlias, cast
+from typing import Annotated, Any, Self, cast
 
 import bencode_rs
 from annotated_types import Ge, MinLen
@@ -382,7 +382,7 @@ def infodict_discriminator(v: Any) -> str | None:
     return None
 
 
-InfodictUnionType: TypeAlias = Annotated[
+type InfodictUnionType = Annotated[
     (
         Annotated[InfoDictV1, Tag("v1")]
         | Annotated[InfoDictV2, Tag("v2")]

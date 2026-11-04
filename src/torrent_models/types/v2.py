@@ -9,12 +9,12 @@ from dataclasses import dataclass
 from functools import cached_property
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Callable, NotRequired, TypeAlias, cast
+from typing import TYPE_CHECKING, Annotated, Any, Callable, NotRequired, cast
 from typing import Literal as L
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, WrapSerializer
 from pydantic_core.core_schema import SerializationInfo
-from typing_extensions import TypeAliasType, TypedDict
+from typing_extensions import TypedDict
 
 from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE
@@ -69,10 +69,8 @@ PieceLayerItem = Annotated[
 ]
 PieceLayersType = dict[SHA256Hash, PieceLayerItem]
 FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[SHA256Hash]})
-_FileTreeType = TypeAliasType(
-    "_FileTreeType", 'dict[bytes, dict[L[""], FileTreeItem] | _FileTreeType]'
-)
-FileTreeType: TypeAlias = Annotated[_FileTreeType, AfterValidator(_sort_keys)]
+type _FileTreeType = 'dict[bytes, dict[L[""], FileTreeItem] | _FileTreeType]'
+type FileTreeType = Annotated[_FileTreeType, AfterValidator(_sort_keys)]
 
 
 class MerkleTree(BaseModel):
@@ -306,9 +304,9 @@ class FileTree(BaseModel):
         return cls.from_flat(flat)
 
 
-def _flatten_tree(val: dict, parts: list[str] | list[bytes] | None = None) -> dict:
+def _flatten_tree(val: FileTreeType, parts: list[str] | None = None) -> dict[str, FileTreeItem]:
     # NOT a general purpose dictionary walker.
-    out: dict[bytes | str, dict] = {}
+    out: dict[str, FileTreeItem] = {}
     if parts is None:
         # top-level, copy the input value
         val = deepcopy(val)
@@ -317,14 +315,11 @@ def _flatten_tree(val: dict, parts: list[str] | list[bytes] | None = None) -> di
     for k, v in val.items():
         if isinstance(k, bytes):
             k = k.decode("utf-8")
-        if k in (b"", ""):
-            if isinstance(k, bytes):
-                parts = cast(list[bytes], parts)
-                out[b"/".join(parts)] = v
-            elif isinstance(k, str):
-                parts = cast(list[str], parts)
-                out["/".join(parts)] = v
+        if k == "":
+            v = cast(FileTreeItem, v)
+            out["/".join(parts)] = v
         else:
+            v = cast(FileTreeType, v)
             out.update(_flatten_tree(v, parts + [k]))
     return out
 
