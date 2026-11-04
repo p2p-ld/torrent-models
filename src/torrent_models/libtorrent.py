@@ -12,7 +12,7 @@ not the module.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 import bencode_rs
 from tqdm import tqdm
@@ -33,6 +33,31 @@ except ImportError as e:
     ) from e
 
 
+@overload
+def create_from_model(
+    torrent: "TorrentCreate",
+    version: TorrentVersion | str = ...,
+    output: Path | None = ...,
+    *,
+    bencode: Literal[True],
+    progress: bool = ...,
+) -> bytes: ...
+@overload
+def create_from_model(
+    torrent: "TorrentCreate",
+    version: TorrentVersion | str = ...,
+    output: Path | None = ...,
+    bencode: Literal[False] = ...,
+    progress: bool = ...,
+) -> dict: ...
+@overload
+def create_from_model(
+    torrent: "TorrentCreate",
+    version: TorrentVersion | str = ...,
+    output: Path | None = ...,
+    bencode: bool = ...,
+    progress: bool = ...,
+) -> dict | bytes: ...
 def create_from_model(
     torrent: "TorrentCreate",
     version: TorrentVersion | str = TorrentVersion.hybrid,

@@ -1,4 +1,5 @@
 import hashlib
+import sys
 from math import ceil
 from posixpath import join as posixjoin
 from typing import Annotated, Any, Self, cast
@@ -6,6 +7,11 @@ from typing import Annotated, Any, Self, cast
 import bencode_rs
 from annotated_types import Ge, MinLen
 from pydantic import BaseModel, Discriminator, Field, Tag, ValidationInfo, model_validator
+
+if sys.version_info < (3, 13):
+    from typing_extensions import TypeVar
+else:
+    from typing import TypeVar
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types import str_keys
@@ -390,3 +396,7 @@ type InfodictUnionType = Annotated[
     ),
     Discriminator(infodict_discriminator),
 ]
+
+# typing_extensions.TypeVar rather than 3.12 `class X[T]` syntax: we need a default (3.13+),
+# and covariance, so that e.g. Torrent[InfoDictHybrid] can be used as a Torrent[InfoDictV1]
+InfoT = TypeVar("InfoT", bound=InfoDictRoot, default=InfodictUnionType, covariant=True)

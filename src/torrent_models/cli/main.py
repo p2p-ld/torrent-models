@@ -15,7 +15,7 @@ from torrent_models import TorrentCreate
 from torrent_models.compat import get_size
 from torrent_models.const import DEFAULT_TORRENT_CREATOR
 from torrent_models.create import list_files
-from torrent_models.info import InfoDictHybrid, InfoDictHybridCreate, InfoDictV1, InfoDictV2
+from torrent_models.info import InfoDictHybridCreate, InfoDictV1
 from torrent_models.torrent import Torrent
 from torrent_models.types.common import TorrentVersion
 from torrent_models.types.v1 import FileItem, V1PieceLength
@@ -218,11 +218,11 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
         file_table.add_column("Size")
 
         if t.torrent_version == TorrentVersion.v1:
-            t.info = cast(InfoDictV1, t.info)
+            info = cast(InfoDictV1, t.info)
             tfiles = (
-                t.info.files
-                if t.info.files is not None
-                else [FileItem(path=t.info.name, length=t.info.length)]
+                info.files
+                if info.files is not None
+                else [FileItem(path=info.name, length=info.length)]
             )
 
             files = [
@@ -231,7 +231,6 @@ def pprint(torrent: Path, verbose: int = 0) -> None:
                 if f.attr not in (b"p", "p")
             ]
         else:
-            t.info = cast(InfoDictV2 | InfoDictHybrid, t.info)
             file_table.add_column("Hash")
             tree = t.flat_files
             assert tree is not None
