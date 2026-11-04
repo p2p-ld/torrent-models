@@ -19,7 +19,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install deps
         run: |
+          python -m pip install pdm
+          pdm install --with benchmark
           python -m pip install -e .[benchmark]
       - name: Run benchmarks
         run: |
-          python -m pytest tests/bench.py --codspeed -vv
+          pdm run benchmark

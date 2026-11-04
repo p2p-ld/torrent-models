@@ -4,8 +4,15 @@ from pathlib import Path
 import pytest
 
 from torrent_models import KiB, Torrent, TorrentCreate
+from torrent_models.types.v1 import V1PieceRange
 
 from .conftest import DATA_DIR
+
+
+def test_v1_piece_range_offset():
+    """v1 piece ranges know their byte offset within the whole torrent"""
+    piece = V1PieceRange(piece_idx=3, piece_length=32 * KiB, ranges=[], piece_hash=bytes(20))
+    assert piece.offset == 96 * KiB
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
@@ -23,11 +30,11 @@ def test_webseed_url_singlefile(version: str, tmp_path: Path):
     )
     if version == "v1":
         assert t.info.files is None
-        v1_range = t.v1_piece_range(2)
+        v1_range = t.layout.v1_piece_range(2)
         prange = v1_range.ranges[0]
     else:
         assert len(t.flat_files) == 1
-        prange = t.v2_piece_range("my_cool_file.exe", 2)
+        prange = t.layout.v2_piece_range("my_cool_file.exe", 2)
 
     # direct links should be unchanged
     assert prange.webseed_url(ws_url) == ws_url
@@ -52,10 +59,10 @@ def test_webseed_url_multifile(version: str, tmp_path: Path):
     t = TorrentCreate(paths=paths, path_root=t_dir, piece_length=32 * KiB).generate(version=version)
     assert t.info.name == t_name
     if version == "v1":
-        v1_range = t.v1_piece_range(6)
+        v1_range = t.layout.v1_piece_range(6)
         prange = v1_range.ranges[0]
     else:
-        prange = t.v2_piece_range("b.exe", 2)
+        prange = t.layout.v2_piece_range("b.exe", 2)
 
     ws_expected = "https://example.com/data/my_torrent/b.exe"
     # direct paths are unchanged

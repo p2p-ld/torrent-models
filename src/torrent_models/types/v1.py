@@ -11,6 +11,7 @@ from pydantic import (
     BeforeValidator,
     PlainSerializer,
     ValidationInfo,
+    computed_field,
     model_validator,
 )
 from pydantic_core.core_schema import SerializationInfo
@@ -101,8 +102,18 @@ class V1PieceRange(PieceRange):
     Paths and byte ranges that correspond to a single v1
     """
 
+    piece_length: V1PieceLength
     ranges: list[FileItemRange]
     piece_hash: SHA1Hash
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def offset(self) -> int:
+        """
+        Byte offset of the start of the piece within the whole torrent,
+        with all files (including padfiles) laid end to end
+        """
+        return self.piece_idx * self.piece_length
 
     def validate_data(self, data: list[bytes]) -> bool:
         """

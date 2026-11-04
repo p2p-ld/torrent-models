@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.4.*
+
+### v0.4.0
+
+**Added**
+
+[`#16`](https://github.com/p2p-ld/torrent-models/pull/16) 
+
+Added {class}`~torrent_models.layout.FileLayout`, accessed as {attr}`.Torrent.layout`,
+which maps between files and the pieces that contain their data -
+e.g. to download only the pieces needed for one file in a torrent.
+
+- {meth}`~torrent_models.layout.FileLayout.v1_file_pieces` and
+  {meth}`~torrent_models.layout.FileLayout.v2_file_pieces` get all the piece ranges for a file
+  from its path within the torrent.
+- {meth}`~torrent_models.layout.FileLayout.file_pieces` does the same,
+  using v2 piece ranges for v2 and hybrid torrents and v1 piece ranges for v1 torrents.
+- {meth}`~torrent_models.layout.FileLayout.v1_piece_range` and
+  {meth}`~torrent_models.layout.FileLayout.v2_piece_range` moved here from {class}`.Torrent`.
+- All piece ranges have a `piece_length` -
+  {class}`~torrent_models.types.v1.V1PieceRange` now has one, as well as an `offset`:
+  the byte offset of the start of the piece within the whole torrent.
+
+**Performance**
+
+- [`#16`](https://github.com/p2p-ld/torrent-models/pull/16) `v1_piece_range` now finds the file where a piece starts with a binary search
+over cached file offsets, rather than scanning the whole file list for every piece.
+
+**Deprecated**
+
+`Torrent.v1_piece_range` and `Torrent.v2_piece_range` raise a `DeprecationWarning`
+and will be removed in a future version - use `torrent.layout.v1_piece_range`
+and `torrent.layout.v2_piece_range` instead.
+The file argument to `v2_piece_range` is named `path` in the new version.
+
 ## v0.3.*
 
 ### v0.3.4 - 2025-10-06
