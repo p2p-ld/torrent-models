@@ -8,6 +8,7 @@ from torrent_models.types.common import (
     SHA256Hash,
     TorrentVersion,
     TrackerFields,
+    safe_join,
 )
 from torrent_models.types.serdes import (
     EXCLUDE_STRINGIFY,
@@ -58,6 +59,7 @@ __all__ = [
     "UnixDatetime",
     "V1PieceLength",
     "V2PieceLength",
+    "safe_join",
     "str_keys",
     "str_keys_list",
 ]
