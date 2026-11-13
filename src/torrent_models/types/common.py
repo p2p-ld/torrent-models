@@ -86,6 +86,11 @@ class GenericFileItem(ConfiguredBase):
     """
 
     path: FileName
+    download_path: str
+    """
+    Where the file goes, relative to the download directory, the way clients lay it out:
+    in a directory named after the torrent, unless it's the torrent's only file
+    """
     length: Annotated[int, Ge(0)]
     attr: bytes | None = None
     pieces_root: bytes | None = Field(None, alias="pieces root")
@@ -103,12 +108,98 @@ class PieceRange(BaseModel):
     """
 
     piece_idx: int
+    """
+    Index of the piece within the whole torrent,
+    which peers use to refer to it in the peer wire protocol.
+    """
     piece_length: int
     """Piece length of the torrent, in bytes"""
 
+    @property
     @abstractmethod
-    def validate_data(self, data: list[bytes]) -> bool:
-        """Check that the provided data matches the piece or root hash"""
+    def size(self) -> int:
+        """Bytes of data in the piece"""
+
+    @property
+    def padding(self) -> int:
+        """
+        Bytes of padfiles at the end of the piece, counted in :attr:`.size`.
+        They're all zeros, so they needn't be downloaded (BEP 47),
+        and :meth:`.validate_data` fills them in if they're left out.
+        """
+        return 0
+
+    def validate_data(self, data: list[bytes] | bytes | Path) -> bool:
+        """
+        Whether the piece's data matches its piece or root hash.
+
+        The data can be given in chunks split up any way, e.g. one per file,
+        or in 16 KiB blocks as peers send them, as long as they add up to the whole piece.
+        The padfiles at the end of the piece (:attr:`.padding`) can be left out,
+        and are filled in with zeros. Any padfiles before them must be in the data, as zeros.
+
+        Or give the directory the torrent was downloaded to, to read the data from there
+        (see :meth:`.read`). That's False if any of the data isn't on disk,
+        and raises ValueError if a path in the torrent would end up outside of it.
+        """
+        if isinstance(data, Path):
+            try:
+                data = self.read(data)
+            except (FileNotFoundError, EOFError):
+                return False
+        if isinstance(data, bytes):
+            data = [data]
+
+        length = sum(len(d) for d in data)
+        assert length in (self.size, self.size - self.padding), (
+            f"Provided data must add up to the size of the piece ({self.size} bytes), "
+            f"or that without the padding at its end ({self.size - self.padding} bytes), "
+            f"got {length}"
+        )
+        return self._hash_matches(data, length)
+
+    @abstractmethod
+    def _hash_matches(self, data: list[bytes], length: int) -> bool:
+        """
+        Whether the data matches the piece's hash, once it's padded with zeros
+        from ``length`` bytes up to :attr:`.size`
+        """
+
+    @abstractmethod
+    def read(self, root: Path) -> bytes:
+        """
+        The piece's data, from the files under ``root``, the directory the torrent was
+        downloaded to, which ``full_path`` is relative to. Padfiles are zeros, and needn't exist.
+        Raises FileNotFoundError or EOFError if any of the data isn't there,
+        and ValueError if a path in the torrent would end up outside of ``root``.
+        """
+
+
+def safe_join(root: Path, path: str) -> Path:
+    """
+    ``root / path``, refusing paths that would end up outside of root.
+
+    Paths in torrents and zips come from strangers.
+    """
+    root = root.resolve()
+    joined = (root / path).resolve()
+    if not joined.is_relative_to(root):
+        raise ValueError(f"{path} is outside of {root}")
+    return joined
+
+
+def _read_range(root: Path, path: str, start: int, end: int) -> bytes:
+    """
+    Bytes [start, end) of a file under ``root``, see :func:`.safe_join`.
+    Raises EOFError if it's too short.
+    """
+    full = safe_join(root, path)
+    with open(full, "rb") as f:
+        f.seek(start)
+        data = f.read(end - start)
+    if len(data) < end - start:
+        raise EOFError(f"{full} ends before byte {end}")
+    return data
 
 
 def webseed_url(base_url: str, path: str) -> str:

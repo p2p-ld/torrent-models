@@ -39,9 +39,7 @@ def add_padfiles(files: list[FileItem], piece_length: int) -> list[FileItem]:
         if f.attr in (b"p", "p"):
             continue
         if (remainder := f.length % piece_length) != 0:
-            pad_length = piece_length - remainder
-            pad = FileItem(length=pad_length, path=[".pad", str(pad_length)], attr=b"p")
-            padded.append(pad)
+            padded.append(FileItem.padfile(piece_length - remainder))
     return padded
 
 
