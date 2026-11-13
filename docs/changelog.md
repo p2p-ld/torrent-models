@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.5.*
+
+### v0.5.0
+
+**Breaking**
+
+- {class}`~torrent_models.types.v2.V2PieceRange`'s `piece_idx` is now the piece's index
+  within the whole torrent, which is how peers refer to pieces, like
+  {class}`~torrent_models.types.v1.V1PieceRange`'s `piece_idx`.
+  In v2 torrents, each file starts on a new piece, and pieces are numbered across the torrent
+  in file tree order (BEP 52).
+  It used to be the index of the piece within its file, which is now `file_piece_idx`.
+  In hybrid torrents, v1 and v2 pieces of the same data now have the same index.
+- The second argument of {meth}`~torrent_models.layout.FileLayout.v2_piece_range`
+  is renamed from `piece_idx` to `file_piece_idx`. It still takes the index within the file.
+
+**Added**
+
+- {meth}`~torrent_models.layout.FileLayout.v2_piece_range_at` gets a v2 piece range
+  from its index within the whole torrent.
+- {meth}`~torrent_models.layout.FileLayout.piece_range` gets a piece range from its index,
+  using v2 piece ranges for v2 and hybrid torrents and v1 piece ranges for v1 torrents.
+- {attr}`~torrent_models.layout.FileLayout.n_pieces` is the number of pieces in the torrent.
+- `size` on {class}`~torrent_models.types.v1.V1PieceRange`
+  and {class}`~torrent_models.types.v2.V2PieceRange` is the number of bytes in the piece.
+- `padding` on piece ranges is the number of bytes of padfiles at the end of the piece,
+  which clients needn't download (BEP 47). It's always 0 for v2 piece ranges.
+- {meth}`~torrent_models.layout.FileLayout.file` gets a file by its path,
+  as in {attr}`.Torrent.files`.
+- `download_path` on {class}`~torrent_models.types.common.GenericFileItem` is where the file
+  goes, relative to the download directory: in a directory named after the torrent,
+  unless it's the torrent's only file.
+- {meth}`.Torrent.check` says whether a torrent's data is on disk and matches its hashes.
+  `read` on piece ranges reads a piece's data.
+  Both raise ValueError for a path in the torrent that would lead outside the directory.
+- {func}`.safe_join` joins a path from a torrent or archive onto a directory,
+  refusing paths that would end up outside of it.
+- {meth}`.FileItem.padfile` makes a padfile, named `.pad/{length}`.
+- {meth}`~torrent_models.layout.FileLayout.byte_range_pieces`,
+  {meth}`~torrent_models.layout.FileLayout.v1_byte_range_pieces` and
+  {meth}`~torrent_models.layout.FileLayout.v2_byte_range_pieces` get the pieces that hold
+  bytes `[start, end)` of a file, preferring v2 piece ranges like
+  {meth}`~torrent_models.layout.FileLayout.file_pieces`. They raise IndexError
+  for a range outside of the file, and ValueError for a file that isn't in the torrent.
+- A `py.typed` marker, so type checkers use torrent-models' type hints.
+
+**Changed**
+
+- `validate_data` on piece ranges accepts data split up any way that adds up to the piece,
+  like 16 KiB blocks as peers send them, or as one `bytes`. v1 piece ranges used to need
+  one chunk per file range, and v2 piece ranges 16 KiB blocks.
+  The padfiles at the end of a v1 piece can be left out, and are filled in with zeros.
+  It also accepts the directory the torrent was downloaded to, and checks the piece's data
+  there, which is False if any of it isn't on disk.
+
+**Fixed**
+
+- {attr}`.Torrent.n_files`, {attr}`.Torrent.total_size` and the printed file list
+  left out padfiles only when their `attr` was exactly `p`, so a padfile with other
+  attributes too, like `px`, was counted as a file.
+- {meth}`~torrent_models.layout.FileLayout.v2_piece_range` with a negative `file_piece_idx`
+  counted back from the end of the file and gave the wrong piece.
+  It now raises IndexError for any index outside of the file.
+
 ## v0.4.*
 
 ### v0.4.0
