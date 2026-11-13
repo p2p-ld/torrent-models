@@ -117,7 +117,7 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
             info = cast(InfoDictV1 | InfoDictHybrid, self.info)
             if info.files is None:
                 return 1
-            return len([f for f in info.files if f.attr not in (b"p", "p")])
+            return len([f for f in info.files if not f.is_padfile])
         else:
             info = cast(InfoDictV2, self.info)
             tree = FileTree.flatten_tree(info.file_tree)
@@ -132,7 +132,7 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
             info = cast(InfoDictV1 | InfoDictHybrid, self.info)
             if info.files is None:
                 return cast(int, info.length)
-            return sum([f.length for f in info.files if f.attr not in (b"p", "p")])
+            return sum([f.length for f in info.files if not f.is_padfile])
         else:
             info = cast(InfoDictV2, self.info)
             tree = FileTree.flatten_tree(info.file_tree)
@@ -167,13 +167,25 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
                     v1_repr["path"] = posixpath.join(*v1_repr["path"])
                     if isinstance(v1_repr["path"], bytes):
                         v1_repr["path"] = v1_repr["path"].decode("utf-8")
+                    v1_repr["download_path"] = (
+                        v1_repr["path"] if info.files is None else f"{info.name}/{v1_repr['path']}"
+                    )
                     if self.torrent_version == TorrentVersion.hybrid:
                         v2_repr = self.flat_files[v1_repr["path"]]  # type: ignore
                     else:
                         v2_repr = {}
                     files.append(GenericFileItem(**{**v1_repr, **v2_repr}))
             else:
-                files = [GenericFileItem(path=k, **v) for k, v in self.flat_files.items()]  # type: ignore
+                flat_files = cast(dict[str, FileTreeItem], self.flat_files)
+                single_file = len(flat_files) == 1
+                files = [
+                    GenericFileItem(
+                        path=k,
+                        download_path=k if single_file else f"{self.info.name}/{k}",
+                        **v,  # type: ignore[arg-type]
+                    )
+                    for k, v in flat_files.items()
+                ]
             self._files = files
         return self._files
 
@@ -241,6 +253,16 @@ class Torrent(TorrentBase[InfoT]):
         if self._layout is None:
             self._layout = FileLayout(self)
         return self._layout
+
+    def check(self, root: Path) -> bool:
+        """
+        Whether all the torrent's data is on disk, and every piece matches its hash.
+        ``root`` is the directory the torrent was downloaded to: the one with a directory
+        named after the torrent in it, or the file itself if it's the torrent's only file.
+        """
+        return all(
+            self.layout.piece_range(i).validate_data(root) for i in range(self.layout.n_pieces)
+        )
 
     def v1_piece_range(self, piece_idx: int) -> V1PieceRange:
         """Deprecated: use ``torrent.layout.v1_piece_range`` , see :class:`.FileLayout`"""
@@ -362,7 +384,7 @@ def pprint(t: TorrentBase[Any], verbose: int = 0) -> None:
             files = [
                 ("/".join(f.path), humanize.naturalsize(f.length, binary=True), "")
                 for f in tfiles
-                if f.attr not in (b"p", "p")
+                if not f.is_padfile
             ]
         else:
             file_table.add_column("Hash")

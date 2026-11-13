@@ -3,6 +3,7 @@ Types used only in v1 (and hybrid) torrents
 """
 
 import hashlib
+from pathlib import Path
 from typing import Annotated, Self
 
 from annotated_types import Ge
@@ -17,7 +18,14 @@ from pydantic import (
 from pydantic_core.core_schema import SerializationInfo
 
 from torrent_models.base import ConfiguredBase
-from torrent_models.types.common import FilePart, PieceRange, SHA1Hash, _power_of_two, webseed_url
+from torrent_models.types.common import (
+    FilePart,
+    PieceRange,
+    SHA1Hash,
+    _power_of_two,
+    _read_range,
+    webseed_url,
+)
 
 V1PieceLength = Annotated[int, AfterValidator(_power_of_two)]
 """
@@ -65,6 +73,11 @@ class FileItem(ConfiguredBase):
     Characters appear in no particular order and unknown characters should be ignored.
     """
 
+    @classmethod
+    def padfile(cls, length: int) -> Self:
+        """A padfile, named ``.pad/{length}`` as BEP 47 recommends"""
+        return cls(length=length, path=[".pad", str(length)], attr=b"p")
+
     @property
     def is_padfile(self) -> bool:
         return self.attr is not None and b"p" in self.attr
@@ -99,7 +112,7 @@ class FileItemRange(FileItem):
 
 class V1PieceRange(PieceRange):
     """
-    Paths and byte ranges that correspond to a single v1
+    Paths and byte ranges that correspond to a single v1 piece
     """
 
     piece_length: V1PieceLength
@@ -115,23 +128,37 @@ class V1PieceRange(PieceRange):
         """
         return self.piece_idx * self.piece_length
 
-    def validate_data(self, data: list[bytes]) -> bool:
+    @property
+    def size(self) -> int:
         """
-        Validate data against hash by concatenating bytes and comparing the SHA1 hash
-
-        The user is responsible for providing all-zero bytestrings
-        for any padding files in the indicated ranges
+        Bytes of data in the piece, including padfiles.
+        Only the last piece of the torrent is shorter than the piece length.
         """
-        assert len(data) == len(
-            self.ranges
-        ), "Need to provide data chunks that correspond to each of the indicated file ranges"
-        for range_, d in zip(self.ranges, data):
-            assert (range_.range_end - range_.range_start) == len(d), (
-                "Provided data chunks must match the sizes indicated by the "
-                "start and end ranges of each file range"
-            )
+        return sum(r.range_end - r.range_start for r in self.ranges)
 
+    @property
+    def padding(self) -> int:
+        padding = 0
+        for r in reversed(self.ranges):
+            if not r.is_padfile:
+                break
+            padding += r.range_end - r.range_start
+        return padding
+
+    def _hash_matches(self, data: list[bytes], length: int) -> bool:
         hasher = hashlib.new("sha1")
         for d in data:
             hasher.update(d)
+        hasher.update(bytes(self.size - length))
         return self.piece_hash == hasher.digest()
+
+    def read(self, root: Path) -> bytes:
+        """See :meth:`.PieceRange.read`"""
+        return b"".join(
+            (
+                bytes(r.range_end - r.range_start)
+                if r.is_padfile
+                else _read_range(root, r.full_path, r.range_start, r.range_end)
+            )
+            for r in self.ranges
+        )

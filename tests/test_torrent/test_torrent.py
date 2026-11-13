@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from torrent_models import Torrent
+from torrent_models import KiB, Torrent
+from torrent_models.types import FileItem
 from torrent_models.types.common import TorrentVersion
 
 from ..conftest import DATA_DIR
@@ -12,6 +13,32 @@ ALL_TORRENTS = list(tf for tf in DATA_DIR.rglob("*.torrent") if "giant" not in t
 
 def test_parse_hybrid():
     torrent = Torrent.read("tests/data/qbt_directory_hybrid.torrent")
+
+
+def test_padfiles_arent_files():
+    """Padfiles aren't counted as files, even with other attrs besides ``p``"""
+    files = [
+        FileItem(path=["a"], length=5 * KiB),
+        FileItem(path=[".pad", str(11 * KiB)], length=11 * KiB, attr=b"px"),
+        FileItem(path=["b"], length=100),
+    ]
+    info = {"name": "t", "piece length": 16 * KiB, "pieces": bytes(40), "files": files}
+    torrent = Torrent.model_validate({"info": info})
+    assert torrent.n_files == 2
+    assert torrent.total_size == 5 * KiB + 100
+    assert [f.path for f in torrent.files] == ["a", "b"]
+    with pytest.raises(ValueError):
+        torrent.layout.file(f".pad/{11 * KiB}")
+
+
+def test_download_path():
+    """A torrent's files go in a directory named after it, unless there's only one"""
+    one = {"name": "a.txt", "piece length": 16 * KiB, "pieces": bytes(20), "length": 100}
+    assert [f.download_path for f in Torrent.model_validate({"info": one}).files] == ["a.txt"]
+    files = [FileItem(path=["a"], length=100), FileItem(path=["dir", "b"], length=100)]
+    many = {"name": "t", "piece length": 16 * KiB, "pieces": bytes(20), "files": files}
+    torrent = Torrent.model_validate({"info": many})
+    assert [f.download_path for f in torrent.files] == ["t/a", "t/dir/b"]
 
 
 @pytest.mark.libtorrent

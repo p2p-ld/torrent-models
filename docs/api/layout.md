@@ -18,7 +18,7 @@ and a fixed-width [rich](https://rich.readthedocs.io) console to print with:
 >>> from pathlib import Path
 >>> from tempfile import TemporaryDirectory
 >>> from rich.console import Console
->>> from torrent_models import BLOCK_SIZE, KiB, TorrentCreate
+>>> from torrent_models import KiB, TorrentCreate
 >>> console = Console(width=80, color_system=None)
 >>> tmp = TemporaryDirectory()
 >>> root = Path(tmp.name) / "my_torrent"
@@ -139,17 +139,21 @@ True
 
 :::{tab-item} v2
 
-In v2 torrents, each file has its own pieces, indexed from 0 within the file.
-Each {class}`~torrent_models.types.v2.V2PieceRange` is a byte range within one file.
+In v2 torrents, each file starts on a new piece, so a piece only holds data from one file.
+Pieces are numbered across the whole torrent in file tree order:
+`a.bin` is piece 0, `b.bin` is pieces 1 and 2, and `c.bin` is piece 3.
+Each {class}`~torrent_models.types.v2.V2PieceRange` is a byte range within one file,
+with its index within the torrent (`piece_idx`) and within the file (`file_piece_idx`).
 
 ```pycon
 >>> torrent = create.generate("v2")
 >>> console.print(torrent.layout.file_pieces("b.bin"))
 [
     V2PieceRange(
-        piece_idx=0,
+        piece_idx=1,
         piece_length=32768,
         path='b.bin',
+        file_piece_idx=0,
         range_start=0,
         range_end=32768,
         file_size=40960,
@@ -158,9 +162,10 @@ Each {class}`~torrent_models.types.v2.V2PieceRange` is a byte range within one f
         full_path='my_torrent/b.bin'
     ),
     V2PieceRange(
-        piece_idx=1,
+        piece_idx=2,
         piece_length=32768,
         path='b.bin',
+        file_piece_idx=1,
         range_start=32768,
         range_end=40960,
         file_size=40960,
@@ -181,6 +186,7 @@ V2PieceRange(
     piece_idx=0,
     piece_length=32768,
     path='a.bin',
+    file_piece_idx=0,
     range_start=0,
     range_end=20480,
     file_size=20480,
@@ -191,15 +197,16 @@ V2PieceRange(
 
 ```
 
-Get a single piece by its path and index, and check data against it in 16 KiB blocks:
+Get a single piece by its path and index within the file, and check data against it:
 
 ```pycon
 >>> piece = torrent.layout.v2_piece_range("b.bin", 1)
 >>> console.print(piece)
 V2PieceRange(
-    piece_idx=1,
+    piece_idx=2,
     piece_length=32768,
     path='b.bin',
+    file_piece_idx=1,
     range_start=32768,
     range_end=40960,
     file_size=40960,
@@ -208,7 +215,15 @@ V2PieceRange(
     full_path='my_torrent/b.bin'
 )
 >>> data = (root / "b.bin").read_bytes()[piece.range_start : piece.range_end]
->>> piece.validate_data([data[i : i + BLOCK_SIZE] for i in range(0, len(data), BLOCK_SIZE)])
+>>> piece.validate_data(data)
+True
+
+```
+
+Or get it by its index within the whole torrent, which is how peers refer to pieces:
+
+```pycon
+>>> torrent.layout.v2_piece_range_at(2) == piece
 True
 
 ```
@@ -225,9 +240,10 @@ Hybrid torrents have both v1 and v2 pieces.
 >>> console.print(torrent.layout.file_pieces("b.bin"))
 [
     V2PieceRange(
-        piece_idx=0,
+        piece_idx=1,
         piece_length=32768,
         path='b.bin',
+        file_piece_idx=0,
         range_start=0,
         range_end=32768,
         file_size=40960,
@@ -236,9 +252,10 @@ Hybrid torrents have both v1 and v2 pieces.
         full_path='my_torrent/b.bin'
     ),
     V2PieceRange(
-        piece_idx=1,
+        piece_idx=2,
         piece_length=32768,
         path='b.bin',
+        file_piece_idx=1,
         range_start=32768,
         range_end=40960,
         file_size=40960,
@@ -252,7 +269,8 @@ Hybrid torrents have both v1 and v2 pieces.
 
 Use {meth}`~torrent_models.layout.FileLayout.v1_file_pieces` for the v1 pieces.
 Hybrid torrents pad every file to a piece boundary with padfiles,
-so `b.bin` starts at the beginning of piece 1, after `a.bin` and its padding,
+so their v1 pieces have the same indices as their v2 pieces:
+`b.bin` starts at the beginning of piece 1, after `a.bin` and its padding,
 and the padfile after it fills the rest of piece 2:
 
 ```pycon

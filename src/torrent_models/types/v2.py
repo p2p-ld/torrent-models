@@ -24,6 +24,7 @@ from torrent_models.types.common import (
     SHA256Hash,
     _divisible_by_16kib,
     _power_of_two,
+    _read_range,
     webseed_url,
 )
 
@@ -423,9 +424,15 @@ class V2PieceRange(PieceRange):
 
     If the range represents a whole file, the piece_hash should be None
     and only the root hash should be given.
+
+    Each file starts on a new piece, and pieces are numbered across the whole torrent
+    in file tree order (BEP 52), so ``piece_idx`` is the index within the torrent
+    and ``file_piece_idx`` is the index within the file.
     """
 
     path: str
+    file_piece_idx: int
+    """Index of the piece within its file, which is its index in the file's piece layer"""
     range_start: int
     range_end: int
     piece_length: V2PieceLength
@@ -439,33 +446,33 @@ class V2PieceRange(PieceRange):
     """
 
     @property
+    def size(self) -> int:
+        """
+        Bytes of data in the piece. The last piece of a file is shorter than the piece length,
+        and isn't padded.
+        """
+        return self.range_end - self.range_start
+
+    @property
     def tree_shape(self) -> MerkleTreeShape:
         return MerkleTreeShape(file_size=self.file_size, piece_length=self.piece_length)
 
-    def validate_data(self, data: list[bytes]) -> bool:
+    def _hash_matches(self, data: list[bytes], length: int) -> bool:
         """
-        Validate 16KiB chunks of data against the provided piece or root hashes.
-
-        If the indicated range is smaller than the piece length,
-        padding is added to the end to balance the merkle tree.
-        Unlike with v1, the user does not need to add zero-padding to the data
-        since it is unambigious from the piece range description.
+        The data is hashed in 16 KiB blocks, the leaves of the merkle tree.
+        If the piece is shorter than the piece length, it's balanced with blocks of zeros.
         """
         from torrent_models.hashing.v2 import V2Hasher
 
-        assert all(
-            len(d) == BLOCK_SIZE for d in data[:-1]
-        ), "All chunks except the last must be 16 KiB"
-        assert len(data[-1]) <= BLOCK_SIZE, "The last chunk must be equal to or shorter than 16 KiB"
-        expected_blocks = ceil((self.range_end - self.range_start) / BLOCK_SIZE)
-        assert len(data) == expected_blocks, f"Expected {expected_blocks}, got {len(data)}"
+        joined = b"".join(data)
+        blocks = [joined[i : i + BLOCK_SIZE] for i in range(0, length, BLOCK_SIZE)]
 
         if self.piece_hash is None:
             n_pad_blocks = self.tree_shape.n_pad_blocks
         else:
-            n_pad_blocks = self.tree_shape.blocks_per_piece - len(data)
+            n_pad_blocks = self.tree_shape.blocks_per_piece - len(blocks)
 
-        block_hashes = [hashlib.sha256(d).digest() for d in data]
+        block_hashes = [hashlib.sha256(b).digest() for b in blocks]
         block_hashes += [bytes(32) for _ in range(n_pad_blocks)]
 
         hash = V2Hasher.hash_root(block_hashes)
@@ -473,6 +480,10 @@ class V2PieceRange(PieceRange):
             return hash == self.root_hash
         else:
             return hash == self.piece_hash
+
+    def read(self, root: Path) -> bytes:
+        """See :meth:`.PieceRange.read`"""
+        return _read_range(root, self.full_path, self.range_start, self.range_end)
 
     def webseed_url(self, base_url: str) -> str:
         return webseed_url(base_url, self.full_path)

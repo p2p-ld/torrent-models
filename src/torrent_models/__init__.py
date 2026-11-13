@@ -15,6 +15,7 @@ from torrent_models.types import (
     TorrentVersion,
     V1PieceLength,
     V2PieceLength,
+    safe_join,
 )
 from torrent_models.info import (
     InfoDictHybrid,
@@ -61,6 +62,7 @@ __all__ = [
     "TorrentVersion",
     "V1PieceLength",
     "V2PieceLength",
+    "safe_join",
     "size",
     "pprint",
 ]
