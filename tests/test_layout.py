@@ -347,7 +347,7 @@ def test_check_changed_or_missing(tmp_path: Path, version: TorrentVersion):
     assert torrent.check(tmp_path)
     b = root / "b"
     data = b.read_bytes()
-    b.write_bytes(b"x" + data[1:])
+    b.write_bytes(bytes([data[0] ^ 0xFF]) + data[1:])
     assert not torrent.check(tmp_path)
     b.write_bytes(data[:-1])
     assert not torrent.check(tmp_path)
