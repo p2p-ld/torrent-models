@@ -2,6 +2,7 @@ import bencode_rs
 import pytest
 
 from torrent_models import TorrentCreate
+from torrent_models.create import list_files
 from torrent_models.types.common import TorrentVersion
 
 from .conftest import DATA_DIR
@@ -73,6 +74,20 @@ def test_create_libtorrent_static(version):
 
     # then test for serialized identity
     assert bencoded == expected
+
+
+@pytest.mark.parametrize("version", ["v2", "hybrid"])
+def test_create_empty_files_libtorrent_static(version):
+    """
+    Empty files are in v2 file trees, without a pieces root,
+    and in hybrid v1 file lists, without a padfile after them, like libtorrent makes them
+    """
+    root = DATA_DIR / "empty"
+    create = TorrentCreate(paths=list_files(root), path_root=root, piece_length=32 * (2**10))
+    generated = bencode_rs.bdecode(create.generate(version=version).bencode())
+    expected = bencode_rs.bdecode((DATA_DIR / f"lt_empty_{version}.torrent").read_bytes())
+    assert generated[b"info"] == expected[b"info"]
+    assert generated[b"piece layers"] == expected[b"piece layers"]
 
 
 @pytest.mark.skip(

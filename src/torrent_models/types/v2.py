@@ -295,12 +295,21 @@ class FileTree(BaseModel):
         return cls(tree=cls.unflatten_tree(tree))
 
     @classmethod
-    def from_trees(cls, trees: list[MerkleTree], base_path: Path) -> "FileTree":
+    def from_trees(cls, trees: list[MerkleTree], paths: list[Path], base_path: Path) -> "FileTree":
+        """
+        The file tree of ``paths``, with the root hashes of their merkle ``trees``.
+        Empty files have no blocks to hash, so they have no merkle tree, and no pieces root.
+        """
+        roots = {tree.path: tree.root_hash for tree in trees}
         flat = {}
-        for tree in trees:
-            flat[tree.path.as_posix()] = FileTreeItem(
-                **{"pieces root": tree.root_hash, "length": get_size(base_path / tree.path)}
-            )
+        for path in paths:
+            length = get_size(base_path / path)
+            if length:
+                flat[path.as_posix()] = FileTreeItem(
+                    **{"pieces root": roots[path], "length": length}
+                )
+            else:
+                flat[path.as_posix()] = FileTreeItem(length=0)
         return cls.from_flat(flat)
 
 
@@ -362,7 +371,10 @@ class PieceLayers:
     file_tree: FileTree
 
     @classmethod
-    def from_trees(cls, trees: list[MerkleTree] | MerkleTree, base_path: Path) -> "PieceLayers":
+    def from_trees(
+        cls, trees: list[MerkleTree] | MerkleTree, paths: list[Path], base_path: Path
+    ) -> "PieceLayers":
+        """The piece layers and file tree of ``paths``, from the merkle trees of their data"""
         if not isinstance(trees, list):
             trees = [trees]
         lengths = [t.piece_length for t in trees]
@@ -371,7 +383,7 @@ class PieceLayers:
         ), "Differing piece lengths in supplied merkle trees!"
         piece_length = lengths[0]
         piece_layers = {tree.root_hash: tree.piece_hashes for tree in trees if tree.piece_hashes}
-        file_tree = FileTree.from_trees(trees, base_path)
+        file_tree = FileTree.from_trees(trees, paths, base_path)
         return PieceLayers(
             piece_length=piece_length, piece_layers=piece_layers, file_tree=file_tree
         )
@@ -411,7 +423,7 @@ class PieceLayers:
         )
         hashes = hasher.process()
         trees = hasher.finish_trees(hashes)
-        return cls.from_trees(trees, base_path=path_root)
+        return cls.from_trees(trees, paths, base_path=path_root)
 
 
 class V2PieceRange(PieceRange):

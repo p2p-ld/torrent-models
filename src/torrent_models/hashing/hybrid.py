@@ -122,5 +122,5 @@ class HybridHasher(V1Hasher, V2Hasher):
 
         v2_leaf_hashes = [h for h in hashes if h.type == "block"]
         trees = self.finish_trees(v2_leaf_hashes)
-        layers = PieceLayers.from_trees(trees, self.path_root)
+        layers = PieceLayers.from_trees(trees, self.paths, self.path_root)
         return layers, v1_pieces
