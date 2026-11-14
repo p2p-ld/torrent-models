@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.6.*
+
+### v0.6.0
+
+**Breaking**
+
+- {meth}`.FileTree.from_trees` and {meth}`.PieceLayers.from_trees` take the paths of every file
+  in the torrent, as well as their merkle trees, since empty files have no merkle tree.
+
+**Fixed**
+
+- Empty files are in the file trees of created v2 and hybrid torrents, with a `length` of 0
+  and no `pieces root`, like libtorrent makes them. They used to be left out of the file tree,
+  so v2 torrents were missing them, and creating a hybrid torrent with an empty file failed
+  because its v1 file list and v2 file tree didn't match.
+
 ## v0.5.*
 
 ### v0.5.0
