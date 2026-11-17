@@ -5,10 +5,19 @@ from typing import Annotated, NotRequired, TypedDict
 from urllib.parse import quote
 
 from annotated_types import Ge, Len
-from pydantic import AfterValidator, AnyUrl, BaseModel, Field, PlainSerializer, SerializationInfo
+from pydantic import (
+    AfterValidator,
+    AnyUrl,
+    BaseModel,
+    Field,
+    PlainSerializer,
+    SerializationInfo,
+    ValidationInfo,
+)
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types.serdes import ByteStr
+from torrent_models.types.validation import LoadLimits
 
 
 class TorrentVersion(StrEnum):
@@ -76,6 +85,22 @@ def _divisible_by_16kib(size: int) -> int:
 def _power_of_two(n: int) -> int:
     assert (n & (n - 1) == 0) and n != 0, "Piece size must be a power of two"
     return n
+
+
+def _within_max_file_size(length: int, info: ValidationInfo) -> int:
+    limits: LoadLimits | None = info.context.get("limits") if info.context else None
+    if limits is None or limits.max_file_size is None:
+        return length
+    if length > limits.max_file_size:
+        raise ValueError(f"file length {length} is more than max_file_size, {limits.max_file_size}")
+    return length
+
+
+FileLength = Annotated[int, Ge(0), AfterValidator(_within_max_file_size)]
+"""
+Length of a file in bytes, within the :attr:`.LoadLimits.max_file_size`
+in the validation context, if any
+"""
 
 
 class GenericFileItem(ConfiguredBase):

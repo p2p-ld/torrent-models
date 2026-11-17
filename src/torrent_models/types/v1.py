@@ -6,7 +6,6 @@ import hashlib
 from pathlib import Path
 from typing import Annotated, Self
 
-from annotated_types import Ge
 from pydantic import (
     AfterValidator,
     BeforeValidator,
@@ -19,6 +18,7 @@ from pydantic_core.core_schema import SerializationInfo
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types.common import (
+    FileLength,
     FilePart,
     PieceRange,
     SHA1Hash,
@@ -60,7 +60,7 @@ Pieces = Annotated[
 
 
 class FileItem(ConfiguredBase):
-    length: Annotated[int, Ge(0)]
+    length: FileLength
     path: list[FilePart]
     attr: bytes | None = None
     """

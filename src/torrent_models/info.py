@@ -5,7 +5,7 @@ from posixpath import join as posixjoin
 from typing import Annotated, Any, Self, cast
 
 import bencode_rs
-from annotated_types import Ge, MinLen
+from annotated_types import MinLen
 from pydantic import BaseModel, Discriminator, Field, Tag, ValidationInfo, model_validator
 
 if sys.version_info < (3, 13):
@@ -15,9 +15,11 @@ else:
 
 from torrent_models.base import ConfiguredBase
 from torrent_models.types import str_keys
+from torrent_models.types.common import FileLength
 from torrent_models.types.serdes import ByteStr
 from torrent_models.types.v1 import FileItem, Pieces, V1PieceLength
 from torrent_models.types.v2 import FileTree, FileTreeItem, FileTreeType, V2PieceLength
+from torrent_models.types.validation import LoadLimits
 
 
 class InfoDictRoot(ConfiguredBase):
@@ -50,7 +52,7 @@ class InfoDictRoot(ConfiguredBase):
 
 class InfoDictV1Base(InfoDictRoot):
     pieces: Pieces | None = None
-    length: Annotated[int, Ge(0)] | None = None
+    length: FileLength | None = None
     files: Annotated[list[FileItem], MinLen(1)] | None = Field(None)
     piece_length: V1PieceLength | None = Field(alias="piece length")
 
@@ -203,6 +205,16 @@ class InfoDictV1(InfoDictV1Base):
         ), "V1 Torrents must have a `length` or `files`,  but not both."
         return self
 
+    @model_validator(mode="after")
+    def v1_within_limits(self, info: ValidationInfo) -> Self:
+        """The torrent fits in the :class:`.LoadLimits` in the validation context, if any"""
+        limits: LoadLimits | None = info.context.get("limits") if info.context else None
+        if limits is None:
+            return self
+        total = self._total_length_v1()
+        limits.check(self.piece_length, ceil(total / self.piece_length), total)
+        return self
+
 
 class InfoDictV1Create(InfoDictV1Base):
     """v1 Infodict that may or may not have its pieces hashed yet"""
@@ -260,6 +272,17 @@ class InfoDictV2(InfoDictV2Base):
     name: ByteStr
     piece_length: V2PieceLength = Field(alias="piece length")
     file_tree: FileTreeType = Field(alias="file tree", exclude=False)
+
+    @model_validator(mode="after")
+    def v2_within_limits(self, info: ValidationInfo) -> Self:
+        """The torrent fits in the :class:`.LoadLimits` in the validation context, if any"""
+        limits: LoadLimits | None = info.context.get("limits") if info.context else None
+        if limits is None:
+            return self
+        n_pieces = sum(ceil(f["length"] / self.piece_length) for f in self.flat_tree.values())
+        # every file starts on a new piece, so the rest of each file's last piece is padding
+        limits.check(self.piece_length, n_pieces, n_pieces * self.piece_length)
+        return self
 
 
 class InfoDictV2Create(InfoDictV2Base):

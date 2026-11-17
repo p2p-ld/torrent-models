@@ -1,3 +1,4 @@
+import dataclasses
 import posixpath
 import warnings
 from math import ceil
@@ -14,6 +15,7 @@ from rich.pretty import Pretty
 from rich.table import Table
 
 from torrent_models.base import ConfiguredBase
+from torrent_models.const import MAX_BENCODE_DEPTH as MAX_BENCODE_DEPTH
 from torrent_models.info import (
     InfoDictHybrid,
     InfoDictV1,
@@ -37,17 +39,7 @@ from torrent_models.types import (
 )
 from torrent_models.types.v1 import V1PieceRange
 from torrent_models.types.v2 import FileTree, V2PieceRange
-
-MAX_BENCODE_DEPTH = 100
-"""
-How deeply lists and dicts can nest in a torrent file by default, like libtorrent's limit.
-Decoding nesting much deeper overflows the stack and crashes the process.
-
-A v2 file tree is a dict for each element of a path, inside the torrent, info and file tree dicts,
-with the file's own dict at the end, so this lets paths be 96 deep, counting the file name.
-pydantic validates the file tree by recursing, and stops at about 98 deep on Windows
-and 254 elsewhere, so raising this only helps deeper file trees outside Windows.
-"""
+from torrent_models.types.validation import LoadLimits
 
 
 class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
@@ -74,25 +66,40 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
 
     @classmethod
     def read_stream(
-        cls, stream: BinaryIO, context: dict | None = None, max_depth: int = MAX_BENCODE_DEPTH
+        cls, stream: BinaryIO, context: dict | None = None, **limits: int | None
     ) -> Self:
         """
         Args:
             stream: the torrent file
-            context: passed to validation
-            max_depth: how deeply lists and dicts can nest, see :data:`.MAX_BENCODE_DEPTH`
+            context: passed to validation, see :class:`.ValidationContext`.
+                Its :class:`.LoadLimits`, if any, also limit the size of the file
+                and how deeply it nests, which raise ValueError
+                and :class:`bencode_rs.BencodeDecodeError`.
+            limits: fields of :class:`.LoadLimits`, like ``max_depth=100``,
+                replacing those of the context's limits
         """
-        tdata = stream.read()
+        context = dict(context or {})
+        load_limits = dataclasses.replace(context.get("limits", LoadLimits()), **limits)
+        context["limits"] = load_limits
+        if load_limits.max_buffer_size is None:
+            tdata = stream.read()
+        else:
+            tdata = stream.read(load_limits.max_buffer_size + 1)
+            if len(tdata) > load_limits.max_buffer_size:
+                raise ValueError(
+                    "torrent file is bigger than max_buffer_size, "
+                    f"{load_limits.max_buffer_size} bytes"
+                )
+        # bencode_rs takes 0 to mean no limit
+        max_depth = 0 if load_limits.max_depth is None else load_limits.max_depth
         tdict = bencode_rs.bdecode(tdata, max_depth=max_depth)
         return cls.from_decoded(decoded=tdict, context=context)
 
     @classmethod
-    def read(
-        cls, path: Path | str, context: dict | None = None, max_depth: int = MAX_BENCODE_DEPTH
-    ) -> Self:
+    def read(cls, path: Path | str, context: dict | None = None, **limits: int | None) -> Self:
         """See :meth:`.read_stream`"""
         with open(path, "rb") as tfile:
-            torrent = cls.read_stream(tfile, context=context, max_depth=max_depth)
+            torrent = cls.read_stream(tfile, context=context, **limits)
         torrent._source_file = Path(path).resolve()
         return torrent
 

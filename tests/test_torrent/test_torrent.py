@@ -5,8 +5,7 @@ from pathlib import Path
 import bencode_rs
 import pytest
 
-from torrent_models import KiB, Torrent
-from torrent_models.torrent import MAX_BENCODE_DEPTH
+from torrent_models import KiB, LoadLimits, Torrent
 from torrent_models.types import FileItem
 from torrent_models.types.common import TorrentVersion
 
@@ -20,19 +19,34 @@ def test_parse_hybrid():
 
 
 def test_deep_nesting_is_refused():
-    """Nesting this deep crashed the process before decoding was limited"""
+    """Nesting this deep crashes the process unless decoding is limited"""
     with pytest.raises(bencode_rs.BencodeDecodeError):
-        Torrent.read_stream(io.BytesIO(b"l" * 60000 + b"e" * 60000))
+        Torrent.read_stream(
+            io.BytesIO(b"l" * 60000 + b"e" * 60000), context={"limits": LoadLimits.libtorrent()}
+        )
 
 
 def test_nesting_limit_can_be_changed():
     """Nested as deep as the limit is fine, and one more is refused"""
     data = b"d4:info" + b"l" * 9 + b"e" * 9 + b"e"
     with pytest.raises(bencode_rs.BencodeDecodeError):
-        Torrent.read_stream(io.BytesIO(data), max_depth=9)
+        Torrent.read_stream(io.BytesIO(data), context={"limits": LoadLimits(max_depth=9)})
     # decodes, then fails validation since the info dict is a list
     with pytest.raises(ValueError):
-        Torrent.read_stream(io.BytesIO(data), max_depth=10)
+        Torrent.read_stream(io.BytesIO(data), context={"limits": LoadLimits(max_depth=10)})
+
+
+def test_limits_as_keywords():
+    """Limits can be passed on their own, replacing the context's, which isn't changed"""
+    data = b"d4:info" + b"l" * 9 + b"e" * 9 + b"e"
+    with pytest.raises(bencode_rs.BencodeDecodeError):
+        Torrent.read_stream(io.BytesIO(data), max_depth=9)
+    context = {"limits": LoadLimits(max_depth=9)}
+    with pytest.raises(ValueError, match="info"):
+        Torrent.read_stream(io.BytesIO(data), context=context, max_depth=10)
+    assert context == {"limits": LoadLimits(max_depth=9)}
+    with pytest.raises(TypeError):
+        Torrent.read_stream(io.BytesIO(data), max_dpeth=10)
 
 
 def _deep_v2_torrent(path_depth: int) -> bytes:
@@ -47,14 +61,15 @@ def _deep_v2_torrent(path_depth: int) -> bytes:
 
 def test_deepest_file_tree_loads():
     """
-    By default, a v2 file tree 96 deep, counting the file name, loads on every platform,
-    and one any deeper is refused while decoding
+    With libtorrent's limits, a v2 file tree 96 deep, counting the file name,
+    loads on every platform, and one any deeper is refused while decoding
     """
-    deepest = MAX_BENCODE_DEPTH - 4
-    torrent = Torrent.read_stream(io.BytesIO(_deep_v2_torrent(deepest)))
+    context = {"limits": LoadLimits.libtorrent()}
+    deepest = 96
+    torrent = Torrent.read_stream(io.BytesIO(_deep_v2_torrent(deepest)), context=context)
     assert len(torrent.files[0].path.split("/")) == deepest
     with pytest.raises(bencode_rs.BencodeDecodeError):
-        Torrent.read_stream(io.BytesIO(_deep_v2_torrent(deepest + 1)))
+        Torrent.read_stream(io.BytesIO(_deep_v2_torrent(deepest + 1)), context=context)
 
 
 def test_padfiles_arent_files():
