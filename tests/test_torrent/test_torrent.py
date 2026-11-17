@@ -6,7 +6,7 @@ import bencode_rs
 import pytest
 
 from torrent_models import KiB, Torrent
-from torrent_models.torrent import MAX_FILE_TREE_DEPTH
+from torrent_models.torrent import MAX_BENCODE_DEPTH
 from torrent_models.types import FileItem
 from torrent_models.types.common import TorrentVersion
 
@@ -47,13 +47,14 @@ def _deep_v2_torrent(path_depth: int) -> bytes:
 
 def test_deepest_file_tree_loads():
     """
-    By default, the deepest v2 file tree that can be validated decodes,
+    By default, a v2 file tree 96 deep, counting the file name, loads on every platform,
     and one any deeper is refused while decoding
     """
-    torrent = Torrent.read_stream(io.BytesIO(_deep_v2_torrent(MAX_FILE_TREE_DEPTH)))
-    assert len(torrent.files[0].path.split("/")) == MAX_FILE_TREE_DEPTH
+    deepest = MAX_BENCODE_DEPTH - 4
+    torrent = Torrent.read_stream(io.BytesIO(_deep_v2_torrent(deepest)))
+    assert len(torrent.files[0].path.split("/")) == deepest
     with pytest.raises(bencode_rs.BencodeDecodeError):
-        Torrent.read_stream(io.BytesIO(_deep_v2_torrent(MAX_FILE_TREE_DEPTH + 1)))
+        Torrent.read_stream(io.BytesIO(_deep_v2_torrent(deepest + 1)))
 
 
 def test_padfiles_arent_files():

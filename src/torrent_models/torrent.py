@@ -37,19 +37,15 @@ from torrent_models.types import (
 from torrent_models.types.v1 import V1PieceRange
 from torrent_models.types.v2 import FileTree, V2PieceRange
 
-MAX_FILE_TREE_DEPTH = 254
+MAX_BENCODE_DEPTH = 100
 """
-How deeply paths in a v2 file tree can nest, counting the file name:
-253 directories, then the file. pydantic won't validate anything nested deeper.
-"""
-
-MAX_BENCODE_DEPTH = MAX_FILE_TREE_DEPTH + 4
-"""
-How deeply lists and dicts can nest in a torrent file by default.
-A v2 file tree is a dict for each element of a path, inside the torrent, info and file tree dicts,
-with the file's own dict at the end, so this fits the deepest file tree that can be read.
-libtorrent's limit is 100, which only fits paths 96 deep.
+How deeply lists and dicts can nest in a torrent file by default, like libtorrent's limit.
 Decoding nesting much deeper overflows the stack and crashes the process.
+
+A v2 file tree is a dict for each element of a path, inside the torrent, info and file tree dicts,
+with the file's own dict at the end, so this lets paths be 96 deep, counting the file name.
+pydantic validates the file tree by recursing, and stops at about 98 deep on Windows
+and 254 elsewhere, so raising this only helps deeper file trees outside Windows.
 """
 
 
