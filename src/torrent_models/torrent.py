@@ -37,6 +37,17 @@ from torrent_models.types import (
 from torrent_models.types.v1 import V1PieceRange
 from torrent_models.types.v2 import FileTree, V2PieceRange
 
+MAX_BENCODE_DEPTH = 100
+"""
+How deeply lists and dicts can nest in a torrent file by default, like libtorrent's limit.
+Decoding nesting much deeper overflows the stack and crashes the process.
+
+A v2 file tree is a dict for each element of a path, inside the torrent, info and file tree dicts,
+with the file's own dict at the end, so this lets paths be 96 deep, counting the file name.
+pydantic validates the file tree by recursing, and stops at about 98 deep on Windows
+and 254 elsewhere, so raising this only helps deeper file trees outside Windows.
+"""
+
 
 class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
     announce: ByteStr | None = None
@@ -59,15 +70,26 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
         return self.url_list
 
     @classmethod
-    def read_stream(cls, stream: BinaryIO, context: dict | None = None) -> Self:
+    def read_stream(
+        cls, stream: BinaryIO, context: dict | None = None, max_depth: int = MAX_BENCODE_DEPTH
+    ) -> Self:
+        """
+        Args:
+            stream: the torrent file
+            context: passed to validation
+            max_depth: how deeply lists and dicts can nest, see :data:`.MAX_BENCODE_DEPTH`
+        """
         tdata = stream.read()
-        tdict = bencode_rs.bdecode(tdata)
+        tdict = bencode_rs.bdecode(tdata, max_depth=max_depth)
         return cls.from_decoded(decoded=tdict, context=context)
 
     @classmethod
-    def read(cls, path: Path | str, context: dict | None = None) -> Self:
+    def read(
+        cls, path: Path | str, context: dict | None = None, max_depth: int = MAX_BENCODE_DEPTH
+    ) -> Self:
+        """See :meth:`.read_stream`"""
         with open(path, "rb") as tfile:
-            torrent = cls.read_stream(tfile, context=context)
+            torrent = cls.read_stream(tfile, context=context, max_depth=max_depth)
         return torrent
 
     @classmethod

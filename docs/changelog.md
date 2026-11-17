@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.*
+
+### v0.7.0
+
+**Added**
+
+- Use bencode_rs's new `max_depth` param to control max bencode depth -
+  defaulting to {data}`.MAX_BENCODE_DEPTH` (100, like libtorrent),
+  otherwise passable to {meth}`.Torrent.read` and {meth}`.Torrent.read_stream` as `max_depth`
+
 ## v0.6.*
 
 ### v0.6.0
