@@ -22,7 +22,10 @@
 
 **Added**
 
-- Use bencode_rs's new `max_depth` param to control max bencode depth
+- Use bencode_rs's new `max_depth` param to control max bencode depth.
+  {meth}`.Torrent.read` and {meth}`.Torrent.read_stream` take `max_depth`, defaulting to
+  {data}`.MAX_BENCODE_DEPTH` (100, like libtorrent), so a file nested deeper is refused
+  instead of crashing the process. That lets v2 file tree paths be 96 deep.
 
 ### v0.5.0
 
