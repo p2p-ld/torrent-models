@@ -173,7 +173,10 @@ class MagnetLink(BaseModel):
         """Mapping between infohash field names and model field names"""
         mapping = {}
         for field_name, field in cls.model_fields.items():
-            if isinstance(field.json_schema_extra, dict) and "magnet_key" in field.json_schema_extra:
+            if (
+                isinstance(field.json_schema_extra, dict)
+                and "magnet_key" in field.json_schema_extra
+            ):
                 mapping[str(field.json_schema_extra["magnet_key"])] = field_name
             else:
                 mapping[field_name] = field_name
