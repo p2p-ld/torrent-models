@@ -19,6 +19,7 @@ from torrent_models.compat import get_size
 from torrent_models.const import BLOCK_SIZE
 from torrent_models.types.common import (
     AbsPath,
+    FileLength,
     PieceRange,
     RelPath,
     SHA256Hash,
@@ -68,7 +69,9 @@ PieceLayerItem = Annotated[
     list[SHA256Hash], BeforeValidator(_validate_v2_hash), WrapSerializer(_serialize_v2_hash)
 ]
 PieceLayersType = dict[SHA256Hash, PieceLayerItem]
-FileTreeItem = TypedDict("FileTreeItem", {"length": int, "pieces root": NotRequired[SHA256Hash]})
+FileTreeItem = TypedDict(
+    "FileTreeItem", {"length": FileLength, "pieces root": NotRequired[SHA256Hash]}
+)
 type _FileTreeType = 'dict[bytes, dict[L[""], FileTreeItem] | _FileTreeType]'
 type FileTreeType = Annotated[_FileTreeType, AfterValidator(_sort_keys)]
 

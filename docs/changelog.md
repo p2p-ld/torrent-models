@@ -2,6 +2,32 @@
 
 ## v0.7.*
 
+### v0.7.1
+
+**Mildly Breaking To The Point Of Not Actually Being Breaking**
+
+- Like the other limits below, nesting depth isn't limited by default anymore.
+  Pass `max_depth=MAX_BENCODE_DEPTH` to {meth}`.Torrent.read` or {meth}`.Torrent.read_stream`
+  for the old limit of 100.
+- v2 file trees with a negative file length are invalid.
+
+**Added**
+
+- {class}`.LoadLimits` limits how big a torrent and what it describes can be,
+  checked when it's loaded, like libtorrent's `load_torrent_limits`,
+  so a torrent from a stranger can't claim absurd sizes:
+  how deeply the file nests, the size of the file, the number of pieces,
+  the piece length, the size of each file, and the total size.
+  Pass it in the validation context, as `context={"limits": LoadLimits(...)}`,
+  to {meth}`.Torrent.read`, {meth}`.Torrent.read_stream`, {meth}`.Torrent.from_decoded`
+  or `model_validate`. Without it, every valid torrent loads.
+  {meth}`.Torrent.read` and {meth}`.Torrent.read_stream` also take the limits
+  as keyword arguments, like `max_depth`, replacing those in the context.
+  {meth}`.Torrent.read` and {meth}`.Torrent.read_stream` raise ValueError for a file
+  over the size limit before decoding it, and the other limits fail validation.
+- {meth}`.LoadLimits.libtorrent` is libtorrent's limits, a reasonable choice for a client.
+
+
 ### v0.7.0
 
 **Added**

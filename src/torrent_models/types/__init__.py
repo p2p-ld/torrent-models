@@ -31,6 +31,7 @@ from torrent_models.types.v2 import (
     PieceLayersType,
     V2PieceLength,
 )
+from torrent_models.types.validation import LoadLimits, ValidationContext
 
 __all__ = [
     "EXCLUDE_STRINGIFY",
@@ -45,6 +46,7 @@ __all__ = [
     "FileTreeType",
     "GenericFileItem",
     "ListOrValue",
+    "LoadLimits",
     "MerkleTree",
     "MerkleTreeShape",
     "PieceLayerItem",
@@ -59,6 +61,7 @@ __all__ = [
     "UnixDatetime",
     "V1PieceLength",
     "V2PieceLength",
+    "ValidationContext",
     "safe_join",
     "str_keys",
     "str_keys_list",
