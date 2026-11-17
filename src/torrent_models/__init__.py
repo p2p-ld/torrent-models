@@ -27,6 +27,7 @@ from torrent_models.info import (
     InfoDictV2Create,
 )
 from torrent_models.layout import FileLayout
+from torrent_models.magnet import MagnetLink
 from torrent_models.torrent import Torrent, pprint
 from torrent_models.create import TorrentCreate
 
@@ -49,6 +50,7 @@ __all__ = [
     "InfoDictV1Create",
     "InfoDictV2",
     "InfoDictV2Create",
+    "MagnetLink",
     "MerkleTree",
     "MerkleTreeShape",
     "PieceLayerItem",

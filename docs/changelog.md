@@ -6,6 +6,8 @@
 
 **Added**
 
+- Magnet link support :) see {mod}`torrent_models.magnet` 
+- Store the source filename from a torrent loaded from disk as `_source_file`
 - Use bencode_rs's new `max_depth` param to control max bencode depth -
   defaulting to {data}`.MAX_BENCODE_DEPTH` (100, like libtorrent),
   otherwise passable to {meth}`.Torrent.read` and {meth}`.Torrent.read_stream` as `max_depth`
