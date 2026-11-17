@@ -95,7 +95,7 @@ class MagnetLink(BaseModel):
         return self.render()
 
     @classmethod
-    def from_torrent(cls, torrent: TorrentBase, **kwargs: Any) -> MagnetLink:
+    def from_torrent(cls, torrent: TorrentBase[Any], **kwargs: Any) -> MagnetLink:
         """
         Create a magnet link from a Torrent object
 
@@ -139,15 +139,15 @@ class MagnetLink(BaseModel):
                 quoted[k] = quote_plus(str(v))
 
         # don't quote here to preserve colons in infohashes
-        def _no_op(value: str, *args: Any, **kwargs: Any) -> str:
-            return value
+        def _no_op(value: str | bytes, *args: Any, **kwargs: Any) -> str:
+            return value if isinstance(value, str) else value.decode()
 
         query = urlencode(quoted, doseq=True, quote_via=_no_op)
         return "magnet:?" + query
 
     @classmethod
     def parse(cls, magnet: str) -> MagnetLink:
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         assert cls.PATTERN.fullmatch(magnet), f"Does not appear to be a magnet link: {magnet}"
         parsed = urlparse(magnet)
         query = parse_qs(parsed.query)
@@ -173,8 +173,8 @@ class MagnetLink(BaseModel):
         """Mapping between infohash field names and model field names"""
         mapping = {}
         for field_name, field in cls.model_fields.items():
-            if "magnet_key" in field.json_schema_extra:
-                mapping[field.json_schema_extra["magnet_key"]] = field_name
+            if isinstance(field.json_schema_extra, dict) and "magnet_key" in field.json_schema_extra:
+                mapping[str(field.json_schema_extra["magnet_key"])] = field_name
             else:
                 mapping[field_name] = field_name
         return mapping
