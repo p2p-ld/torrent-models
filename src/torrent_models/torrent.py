@@ -23,6 +23,7 @@ from torrent_models.info import (
     InfoT,
 )
 from torrent_models.layout import FileLayout
+from torrent_models.magnet import MagnetLink
 from torrent_models.types import (
     ByteStr,
     FileItem,
@@ -63,6 +64,8 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
 
     _flat_files: dict[str, FileTreeItem] | None = None
     _files: list[GenericFileItem] | None = None
+    _source_file: Path | None = None
+    """file on disk the torrent was loaded from, if any"""
 
     @property
     def webseeds(self) -> list[str] | None:
@@ -90,6 +93,7 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
         """See :meth:`.read_stream`"""
         with open(path, "rb") as tfile:
             torrent = cls.read_stream(tfile, context=context, max_depth=max_depth)
+        torrent._source_file = Path(path).resolve()
         return torrent
 
     @classmethod
@@ -118,6 +122,10 @@ class TorrentBase(ConfiguredBase, Generic[InfoT]):  # noqa: UP046 - see InfoT
             return TorrentVersion.v2
         else:
             return TorrentVersion.hybrid
+
+    @property
+    def magnet(self) -> MagnetLink:
+        return MagnetLink.from_torrent(self)
 
     @property
     def v1_infohash(self) -> str | None:
