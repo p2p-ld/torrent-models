@@ -1,8 +1,12 @@
+import hashlib
+import io
 from pathlib import Path
 
+import bencode_rs
 import pytest
 
 from torrent_models import KiB, Torrent
+from torrent_models.torrent import MAX_FILE_TREE_DEPTH
 from torrent_models.types import FileItem
 from torrent_models.types.common import TorrentVersion
 
@@ -13,6 +17,43 @@ ALL_TORRENTS = list(tf for tf in DATA_DIR.rglob("*.torrent") if "giant" not in t
 
 def test_parse_hybrid():
     torrent = Torrent.read("tests/data/qbt_directory_hybrid.torrent")
+
+
+def test_deep_nesting_is_refused():
+    """Nesting this deep crashed the process before decoding was limited"""
+    with pytest.raises(bencode_rs.BencodeDecodeError):
+        Torrent.read_stream(io.BytesIO(b"l" * 60000 + b"e" * 60000))
+
+
+def test_nesting_limit_can_be_changed():
+    """Nested as deep as the limit is fine, and one more is refused"""
+    data = b"d4:info" + b"l" * 9 + b"e" * 9 + b"e"
+    with pytest.raises(bencode_rs.BencodeDecodeError):
+        Torrent.read_stream(io.BytesIO(data), max_depth=9)
+    # decodes, then fails validation since the info dict is a list
+    with pytest.raises(ValueError):
+        Torrent.read_stream(io.BytesIO(data), max_depth=10)
+
+
+def _deep_v2_torrent(path_depth: int) -> bytes:
+    """A v2 torrent with one file, whose path has this many elements, counting the file name"""
+    tree: dict = {b"": {b"length": 10, b"pieces root": hashlib.sha256(b"x").digest()}}
+    tree = {b"file": tree}
+    for i in reversed(range(path_depth - 1)):
+        tree = {f"dir{i}".encode(): tree}
+    info = {b"name": b"t", b"piece length": 16 * KiB, b"meta version": 2, b"file tree": tree}
+    return bencode_rs.bencode({b"info": info, b"piece layers": {}})
+
+
+def test_deepest_file_tree_loads():
+    """
+    By default, the deepest v2 file tree that can be validated decodes,
+    and one any deeper is refused while decoding
+    """
+    torrent = Torrent.read_stream(io.BytesIO(_deep_v2_torrent(MAX_FILE_TREE_DEPTH)))
+    assert len(torrent.files[0].path.split("/")) == MAX_FILE_TREE_DEPTH
+    with pytest.raises(bencode_rs.BencodeDecodeError):
+        Torrent.read_stream(io.BytesIO(_deep_v2_torrent(MAX_FILE_TREE_DEPTH + 1)))
 
 
 def test_padfiles_arent_files():

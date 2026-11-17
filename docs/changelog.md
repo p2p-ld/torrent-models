@@ -18,6 +18,12 @@
 
 ## v0.5.*
 
+### v0.5.1
+
+**Added**
+
+- Use bencode_rs's new `max_depth` param to control max bencode depth
+
 ### v0.5.0
 
 **Breaking**
